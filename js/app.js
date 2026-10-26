@@ -146,6 +146,12 @@
     phone: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/>',
     whatsapp: '<path d="M4 20l1.3-3.9A8.3 8.3 0 1 1 8.1 19Z"/><path d="M9.2 8.4c.4-.6 1-.6 1.3 0l.6 1.4c.1.3 0 .6-.2.8l-.5.5a6 6 0 0 0 2.6 2.6l.5-.5c.2-.2.5-.3.8-.2l1.4.6c.6.3.6.9 0 1.3-.9.6-2 .7-3 .2a8.6 8.6 0 0 1-3.7-3.7c-.5-1-.4-2.1.2-3Z"/>',
     mail: '<rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="m4 7.5 8 6 8-6"/>',
+    layers: '<path d="m12 3.5 8.5 4.5-8.5 4.5L3.5 8 12 3.5Z"/><path d="m3.5 12 8.5 4.5 8.5-4.5M3.5 16l8.5 4.5 8.5-4.5"/>',
+    escalator: '<path d="M8 19.5V5M4.8 8.2 8 5l3.2 3.2M16 4.5V19M12.8 15.8 16 19l3.2-3.2"/>',
+    elevator: '<rect x="5" y="3.5" width="14" height="17" rx="2.5"/><path d="M9.5 10.5 12 8l2.5 2.5M9.5 13.5 12 16l2.5-2.5"/>',
+    stairs: '<path d="M3.5 19.5H8v-4h4v-4h4v-4h4.5"/>',
+    door: '<path d="M6 20.5v-16a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v16M3.5 20.5h17M14.5 12.5v.01"/>',
+    cube: '<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>',
   };
   const ico = (name, cls = '') => `<svg class="svg-ico ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
   function hydrateIcons(root = document) {
@@ -178,6 +184,7 @@
     catalogFilter: 'todo',
     cart: storage.get('cart', []), // [{sid, pid, color, talla, qty}]
     orders: storage.get('orders', []),
+    galFloor: 1, // piso que se ve en el plano de la galería
   };
   const loadedAt = Date.now();
   const allReports = () => [
@@ -236,14 +243,17 @@
     map.on('style.load', addOverlays);
     map.on('zoom', updatePinScale);
     map.on('rotate', updatePuck);
+    map.on('move', onGalMove);
     map.on('click', (e) => {
-      if (e.originalEvent && e.originalEvent.target.closest('.pin, .rpin, .landmark')) return;
-      if (state.sheet === 'place' || state.sheet === 'report') deselect();
+      if (e.originalEvent && e.originalEvent.target.closest('.pin, .rpin, .landmark, .gal-marker, .gal-label')) return;
+      if (galClick(e)) return;
+      if (['place', 'report', 'stand', 'galeria'].includes(state.sheet)) deselect();
     });
     map.once('load', () => {
       fitToStores(visibleStores(), false, 0.55);
       const attrib = $('.maplibregl-ctrl-attrib');
       if (attrib) attrib.classList.remove('maplibregl-compact-show');
+      updateGalView();
     });
 
     STORES.forEach((s) => {
@@ -266,6 +276,7 @@
     st.setAttribute('aria-label', `${STATION.nombre}, ${STATION.linea}`);
 
     allReports().forEach(addReportMarker);
+    initGaleriaMarkers();
 
     const u = document.createElement('div');
     u.className = 'user-puck';
@@ -300,6 +311,7 @@
 
     if (state.route && state.route.coords) map.getSource('ubi-route').setData(lineFeature(state.route.coords));
     map.setLayoutProperty('building-3d', 'visibility', state.is3d ? 'visible' : 'none');
+    addGaleriaLayers(dark);
   }
 
   function updatePinScale() {
@@ -361,6 +373,7 @@
       m.el.classList.toggle('is-selected', on);
       m.el.style.zIndex = on ? 5 : '';
     });
+    refreshGalSelection();
   }
 
   function selectStore(id, fly = true) {
@@ -388,6 +401,408 @@
     state.sheet = 'browse';
     markSelected();
     renderSheet();
+  }
+
+  // ---------------------------------------------------------------- galería de varios pisos (simulación)
+  const GAL = window.UBI_GALERIA;
+  const GAL_Z = 17.5; // desde este zoom el edificio muestra el plano de un piso
+  const ordinal = (n) => `${n}.${n === 1 || n === 3 ? 'er' : 'º'}`;
+  const pisoTxt = (f) => `${ordinal(f)} piso`;
+  const STANDS = [];
+  const STAND = {};
+  let galIndoor = false, galMarker = null, galRaf = 0, galTipTimer = 0;
+  const galLabels = [], galPois = [];
+
+  // Plano en metros sobre el contorno: u va del frente (Jr. San Cristóbal) al fondo, v del lado oeste al este
+  const galGeo = (() => {
+    const [nw, sw, se, ne] = GAL.esquinas;
+    const L = distM({ lng: nw[0], lat: nw[1] }, { lng: sw[0], lat: sw[1] });
+    const W = distM({ lng: nw[0], lat: nw[1] }, { lng: ne[0], lat: ne[1] });
+    const at = (u, v) => {
+      const s = u / L, t = v / W;
+      return [0, 1].map((k) => nw[k] * (1 - s) * (1 - t) + sw[k] * s * (1 - t) + se[k] * s * t + ne[k] * (1 - s) * t);
+    };
+    const rect = (u0, v0, u1, v1) => [[at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1), at(u0, v0)]];
+    const LOBBY = 6.2, CORE = 6.2, DEPTH = 7, GAP = 0.25, H = GAL.alturaPiso;
+    const bay = (L - LOBBY - CORE) / 5;
+    // stands 1-5 a la derecha entrando (lado oeste), de frente a fondo; 6-10 a la izquierda, de fondo a frente
+    const slot = (i) => {
+      const k = i < 5 ? i : 9 - i;
+      const u0 = LOBBY + k * bay;
+      const [v0, v1] = i < 5 ? [0, DEPTH] : [W - DEPTH, W];
+      return { ring: rect(u0 + GAP, v0 + GAP, u0 + bay - GAP, v1 - GAP), center: at(u0 + bay / 2, (v0 + v1) / 2), k };
+    };
+    const zones = [
+      { t: 'lobby', ring: rect(0, 0, LOBBY, W), h: 0.32 },
+      { t: 'esc', ring: rect(1.3, W / 2 - 1.5, LOBBY - 1.3, W / 2 + 1.5), h: 1.1 },
+      { t: 'core', ring: rect(L - CORE + GAP, GAP, L - GAP, 5.2), h: 3 },
+      { t: 'core', ring: rect(L - CORE + GAP, 5.6, L - GAP, 8.6), h: 3 },
+      { t: 'core', ring: rect(L - CORE + GAP, W - 6.2, L - GAP, W - GAP), h: 3 },
+    ];
+    const outline = rect(0, 0, L, W);
+    const features = [];
+    const add = (ring, props) => features.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: ring }, properties: props });
+    add(outline, { k: 'foot' });
+    GAL.pisos.forEach((p, fi) => {
+      const f = fi + 1, base = fi * H;
+      add(outline, { k: 'body', f, t: 'body', base, top: base + H - 0.45 });
+      add(outline, { k: 'body', f, t: 'band', base: base + H - 0.45, top: base + H });
+      add(outline, { k: 'plate', f, base, top: base + 0.3 });
+      zones.forEach((z) => add(z.ring, { k: 'zone', f, t: z.t, base: base + 0.3, top: base + z.h }));
+      p.stands.forEach((s, i) => {
+        const g = slot(i), num = f * 100 + i + 1;
+        const st = { id: 'stand:' + num, num, f, i, k: g.k, side: i < 5 ? 'derecha' : 'izquierda', center: g.center,
+          nombre: s ? s[0] : null, cat: s ? s[1] : null, desc: s ? s[2] : '' };
+        STANDS.push(st);
+        STAND[st.id] = st;
+        add(g.ring, { k: 'stand', f, id: st.id, c: s ? CAT[s[1]].color : '', libre: !s, base: base + 0.3, top: base + 2.9 });
+      });
+    });
+    return {
+      features, at, L, W,
+      center: at(L / 2, W / 2),
+      entrance: at(-2.5, W / 2),
+      slots: Array.from({ length: 10 }, (_, i) => slot(i).center),
+      axis: bearing(sw, nw), // rumbo del eje largo: con este bearing el edificio queda vertical en pantalla
+      pois: [
+        { icon: 'escalator', label: 'Escalera mecánica', at: at(LOBBY / 2, W / 2) },
+        { icon: 'stairs', label: 'Escaleras', at: at(L - CORE / 2, 2.7) },
+        { icon: 'elevator', label: 'Ascensor', at: at(L - CORE / 2, 7.1) },
+        { text: 'SS.HH.', label: 'Servicios higiénicos', at: at(L - CORE / 2, W - 3.2) },
+        { icon: 'door', text: 'Ingreso', label: `Ingreso por ${GAL.ingreso}`, at: at(-1.6, W / 2), soloPiso1: true, cls: 'door' },
+        { icon: 'door', text: 'Salida', label: `Salida a ${GAL.salida}`, at: at(L + 1.6, (8.6 + W - 6.2) / 2), soloPiso1: true, cls: 'door' },
+      ],
+    };
+  })();
+  const galEntrance = { lng: galGeo.entrance[0], lat: galGeo.entrance[1] };
+  const standsOf = (f) => STANDS.filter((s) => s.f === f);
+  const selectedStand = () => STAND[state.selected] || null;
+  const sheetFor = (id) => (!id ? 'browse' : STAND[id] ? 'stand' : id === GAL.id ? 'galeria' : 'place');
+
+  // Destino de ruta para la galería o uno de sus stands: se llega al ingreso
+  function galTarget(id) {
+    const st = STAND[id];
+    if (!st && id !== GAL.id) return null;
+    return {
+      id, galeria: true, stand: st, lat: galEntrance.lat, lng: galEntrance.lng,
+      nombre: st ? st.nombre || `Stand ${st.num}` : GAL.nombre,
+      direccion: { calle: GAL.direccion.calle, numero: GAL.direccion.numero,
+        interior: st ? `${GAL.nombre}, ${pisoTxt(st.f)}, stand ${st.num}` : `Ingreso por ${GAL.ingreso}` },
+    };
+  }
+  const targetOf = (id) => BY_ID[id] || galTarget(id);
+
+  function addGaleriaLayers(dark) {
+    const c = dark
+      ? { slab: '#2B3847', lobby: '#324254', core: '#3D4D60', esc: '#5A6C82', free: '#3A4756', body: '#3A4859', band: '#263240', wall: '#8F93FF', line: '#14202C', sel: '#FFFFFF' }
+      : { slab: '#FFFFFF', lobby: '#EEF2F7', core: '#D9E0E8', esc: '#B4C1CE', free: '#E6E9EE', body: '#ECE9E2', band: '#C9C3B8', wall: '#5B5FEF', line: '#FFFFFF', sel: '#0B2540' };
+    // el edificio original de las teselas se oculta para dibujar el nuestro encima
+    const notGal = ['!=', ['id'], GAL.teselaId];
+    map.setFilter('building', notGal);
+    map.setFilter('building-3d', notGal);
+    map.addSource('ubi-gal', { type: 'geojson', data: { type: 'FeatureCollection', features: galGeo.features } });
+    const fade = (v) => ['interpolate', ['linear'], ['zoom'], GAL_Z - 0.5, 0, GAL_Z, v];
+    const standColor = ['case', ['get', 'libre'], c.free, ['get', 'c']];
+    const zoneColor = ['match', ['get', 't'], 'lobby', c.lobby, 'esc', c.esc, c.core];
+    map.addLayer({ id: 'gal-foot', type: 'fill', source: 'ubi-gal', filter: ['==', ['get', 'k'], 'foot'],
+      paint: { 'fill-color': c.slab, 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 14.5, 0, 15.5, 1] } });
+    map.addLayer({ id: 'gal-zone', type: 'fill', source: 'ubi-gal', paint: { 'fill-color': zoneColor, 'fill-opacity': fade(1) } });
+    map.addLayer({ id: 'gal-stand', type: 'fill', source: 'ubi-gal',
+      paint: { 'fill-color': standColor, 'fill-opacity': ['interpolate', ['linear'], ['zoom'], GAL_Z - 0.5, 0, GAL_Z, ['case', ['get', 'libre'], 1, dark ? 0.72 : 0.82]] } });
+    map.addLayer({ id: 'gal-stand-line', type: 'line', source: 'ubi-gal',
+      paint: { 'line-color': ['case', ['get', 'libre'], dark ? '#5C6B7C' : '#AEB8C3', c.line], 'line-width': 1.2, 'line-opacity': fade(1) } });
+    map.addLayer({ id: 'gal-sel', type: 'line', source: 'ubi-gal', layout: { 'line-join': 'round' },
+      paint: { 'line-color': c.sel, 'line-width': ['interpolate', ['linear'], ['zoom'], 17, 2, 19, 4] } });
+    map.addLayer({ id: 'gal-wall', type: 'line', source: 'ubi-gal', filter: ['==', ['get', 'k'], 'foot'], layout: { 'line-join': 'round' },
+      paint: { 'line-color': c.wall, 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 1.5, 17.5, 2.5, 19.5, 5] } });
+    map.addLayer({ id: 'gal-3d-body', type: 'fill-extrusion', source: 'ubi-gal',
+      paint: { 'fill-extrusion-color': ['match', ['get', 't'], 'band', c.band, c.body],
+        'fill-extrusion-base': ['get', 'base'], 'fill-extrusion-height': ['get', 'top'], 'fill-extrusion-opacity': 0.96 } });
+    map.addLayer({ id: 'gal-3d-act', type: 'fill-extrusion', source: 'ubi-gal',
+      paint: { 'fill-extrusion-color': ['match', ['get', 'k'], 'stand', standColor, 'zone', zoneColor, c.slab],
+        'fill-extrusion-base': ['get', 'base'], 'fill-extrusion-height': ['get', 'top'], 'fill-extrusion-opacity': 1 } });
+    // pisos de arriba del que se mira: volumen de vidrio para que se note la altura del edificio
+    map.addLayer({ id: 'gal-3d-ghost', type: 'fill-extrusion', source: 'ubi-gal',
+      paint: { 'fill-extrusion-color': c.wall, 'fill-extrusion-base': ['get', 'base'], 'fill-extrusion-height': ['get', 'top'], 'fill-extrusion-opacity': dark ? 0.16 : 0.13 } });
+    applyGalFilters();
+  }
+
+  // Qué piso se dibuja y cómo: plano plano en 2D; en 3D, los pisos de abajo enteros y el actual abierto
+  function applyGalFilters() {
+    if (!map || !map.getLayer('gal-foot')) return;
+    const f = state.galFloor;
+    const onFloor = (k) => ['all', ['==', ['get', 'k'], k], ['==', ['get', 'f'], f]];
+    map.setFilter('gal-zone', onFloor('zone'));
+    map.setFilter('gal-stand', onFloor('stand'));
+    map.setFilter('gal-stand-line', onFloor('stand'));
+    map.setFilter('gal-3d-body', ['all', ['==', ['get', 'k'], 'body'], galIndoor ? ['<', ['get', 'f'], f] : true]);
+    map.setFilter('gal-3d-act', galIndoor
+      ? ['all', ['in', ['get', 'k'], ['literal', ['plate', 'zone', 'stand']]], ['==', ['get', 'f'], f]]
+      : ['==', ['get', 'k'], 'none']);
+    map.setFilter('gal-3d-ghost', ['all', ['==', ['get', 'k'], 'body'], ['==', ['get', 't'], 'body'], galIndoor ? ['>', ['get', 'f'], f] : false]);
+    ['gal-zone', 'gal-stand', 'gal-stand-line', 'gal-sel', 'gal-wall'].forEach((id) => map.setLayoutProperty(id, 'visibility', state.is3d ? 'none' : 'visible'));
+    ['gal-3d-body', 'gal-3d-act', 'gal-3d-ghost'].forEach((id) => map.setLayoutProperty(id, 'visibility', state.is3d ? 'visible' : 'none'));
+    refreshGalSelection();
+  }
+
+  function refreshGalSelection() {
+    const st = selectedStand();
+    const id = st ? st.id : '';
+    if (map && map.getLayer('gal-sel')) {
+      map.setFilter('gal-sel', ['==', ['get', 'id'], id]);
+      map.setPaintProperty('gal-3d-act', 'fill-extrusion-height', ['case', ['==', ['get', 'id'], id], ['+', ['get', 'top'], 1.4], ['get', 'top']]);
+    }
+    galLabels.forEach((l) => l.el.classList.toggle('is-selected', !!st && st.f === state.galFloor && st.i === l.i));
+  }
+
+  function initGaleriaMarkers() {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'gal-marker';
+    el.innerHTML = `<span class="gk-ico">${ico('layers')}</span><span class="gk-label">${esc(GAL.nombre)}<small>${GAL.pisos.length} pisos · ${STANDS.length} stands</small></span>`;
+    el.addEventListener('click', (ev) => { ev.stopPropagation(); openGaleria(); });
+    galMarker = new maplibregl.Marker({ element: el, anchor: 'left', offset: [-17, 0] }).setLngLat(galGeo.center).addTo(map);
+    el.setAttribute('aria-label', `${GAL.nombre}, ${GAL.pisos.length} pisos, ver plano`);
+    galGeo.slots.forEach((pos, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'gal-label';
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); selectStand(standsOf(state.galFloor)[i].id, false); });
+      galLabels.push({ el: b, i, pos, marker: new maplibregl.Marker({ element: b, anchor: 'center' }).setLngLat(pos).addTo(map) });
+    });
+    galGeo.pois.forEach((p) => {
+      const e = document.createElement('div');
+      e.className = `gal-poi ${p.cls || ''} ${p.text && !p.icon ? 'txt' : ''}`;
+      e.innerHTML = `${p.icon ? ico(p.icon) : ''}${p.text ? `<span>${p.text}</span>` : ''}`;
+      galPois.push({ el: e, p, marker: new maplibregl.Marker({ element: e, anchor: 'center' }).setLngLat(p.at).addTo(map) });
+      e.setAttribute('aria-label', p.label);
+      e.title = p.label;
+    });
+    renderGalLabels();
+    renderGalFloors();
+  }
+
+  function renderGalLabels() {
+    const list = standsOf(state.galFloor);
+    galLabels.forEach((l) => {
+      const st = list[l.i], c = st.cat && CAT[st.cat];
+      l.el.classList.toggle('is-free', !c);
+      l.el.style.setProperty('--c', c ? c.color : '#9AA6B2');
+      l.el.innerHTML = `<b>${st.num}</b><span>${esc(st.nombre || 'Disponible')}</span>`;
+      l.el.setAttribute('aria-label', `Stand ${st.num}, ${st.nombre || 'disponible'}`);
+    });
+    galPois.forEach((g) => g.el.classList.toggle('is-hidden', !!g.p.soloPiso1 && state.galFloor !== 1));
+    refreshGalSelection();
+  }
+
+  function renderGalFloors() {
+    const box = $('#gal-floors');
+    if (!box) return;
+    box.innerHTML = `<button class="gf-head" data-gal="open" aria-label="Ver ${esc(GAL.nombre)}">${ico('layers')}<span>Piso</span></button>
+      ${GAL.pisos.map((p, i) => i + 1).map((f) => `<button class="gf-btn ${f === state.galFloor ? 'is-active' : ''}" data-floor="${f}" aria-pressed="${f === state.galFloor}" aria-label="${pisoTxt(f)}: ${esc(GAL.pisos[f - 1].tema)}">${f}</button>`).join('')}
+      <span class="gf-tip" aria-hidden="true"></span>`;
+  }
+
+  // Muestra un momento el nombre del piso bajo el selector, como en los mapas de interiores
+  function showFloorTip() {
+    const box = $('#gal-floors');
+    const tip = box && $('.gf-tip', box);
+    if (!tip || box.hidden) return;
+    tip.textContent = `${pisoTxt(state.galFloor)} · ${GAL.pisos[state.galFloor - 1].tema}`;
+    tip.classList.add('show');
+    clearTimeout(galTipTimer);
+    galTipTimer = setTimeout(() => tip.classList.remove('show'), 1800);
+  }
+
+  function setGalFloor(f) {
+    if (f === state.galFloor || !GAL.pisos[f - 1]) return;
+    state.galFloor = f;
+    const st = selectedStand();
+    if (st && st.f !== f) { state.selected = null; state.sheet = 'galeria'; }
+    renderGalFloors();
+    renderGalLabels();
+    applyGalFilters();
+    updateGalView();
+    if (state.sheet === 'galeria' || state.sheet === 'stand') renderSheet();
+    showFloorTip();
+    vibrate(8);
+  }
+
+  // Desplazamiento en pantalla para que una marca quede a cierta altura (metros) en la vista 3D
+  function liftOffset(pos, meters) {
+    if (!meters || !map.getPitch()) return [0, 0];
+    const t = map.transform;
+    try {
+      if (t && t.coordinatePoint) {
+        const mc = maplibregl.MercatorCoordinate.fromLngLat(pos);
+        const a = t.coordinatePoint(mc, 0), b = t.coordinatePoint(mc, meters);
+        return [b.x - a.x, b.y - a.y];
+      }
+    } catch (e) { /* cálculo aproximado */ }
+    const ppm = (512 * 2 ** map.getZoom()) / (40075016.686 * Math.cos((pos[1] * Math.PI) / 180));
+    return [0, -meters * ppm * Math.sin((map.getPitch() * Math.PI) / 180)];
+  }
+
+  function onGalMove() {
+    if (!galRaf) galRaf = requestAnimationFrame(() => { galRaf = 0; updateGalView(); });
+  }
+
+  function updateGalView() {
+    if (!map || !galMarker) return;
+    const z = map.getZoom();
+    const inside = z >= GAL_Z && map.getBounds().contains(galGeo.center);
+    const el = $('#map');
+    el.classList.toggle('gal-indoor', inside);
+    // en 3D los stands se ven más chicos por la inclinación: los números aparecen con más zoom
+    el.classList.toggle('gal-nums', z >= (state.is3d ? 18.5 : 17.8));
+    el.classList.toggle('gal-names', z >= (state.is3d ? 19.2 : 18.9));
+    el.classList.toggle('gal-far', z < 15.2);
+    if (inside !== galIndoor) {
+      galIndoor = inside;
+      $('#gal-floors').hidden = !inside;
+      $('#screen-mapa').classList.toggle('gal-indoor', inside);
+      applyGalFilters();
+      if (inside) setTimeout(showFloorTip, 250);
+    }
+    const H = GAL.alturaPiso, base = (state.galFloor - 1) * H, sel = selectedStand();
+    if (inside) {
+      galLabels.forEach((l) => {
+        const up = sel && sel.f === state.galFloor && sel.i === l.i ? 1.4 : 0;
+        l.marker.setOffset(liftOffset(l.pos, state.is3d ? base + 3.1 + up : 0));
+      });
+      galPois.forEach((g) => g.marker.setOffset(liftOffset(g.p.at, state.is3d ? (g.p.soloPiso1 ? 0.5 : base + 3.2) : 0)));
+    } else {
+      const roof = liftOffset(galGeo.center, state.is3d ? GAL.pisos.length * H : 0);
+      galMarker.setOffset([roof[0] - 17, roof[1]]);
+    }
+  }
+
+  function flyToGaleria() {
+    if (!map) return;
+    requestAnimationFrame(() => {
+      const o = overlayHeights();
+      const b = new maplibregl.LngLatBounds();
+      GAL.esquinas.forEach((c) => b.extend(c));
+      const brg = state.is3d ? galGeo.axis - 32 : galGeo.axis;
+      const cam = map.cameraForBounds(b, { padding: { top: o.top + 30, bottom: o.bottom + 30, left: 40, right: 76 }, bearing: brg });
+      if (!cam) return;
+      map.easeTo({ center: cam.center, zoom: Math.min(19.3, cam.zoom + (state.is3d ? 0.15 : 0)), bearing: brg, pitch: state.is3d ? 58 : 0, duration: reduceMotion ? 0 : 1100 });
+    });
+  }
+
+  function openGaleria(fly = true) {
+    if (state.nav) return;
+    if (state.route) clearRoute();
+    state.selected = null;
+    state.report = null;
+    state.sheet = 'galeria';
+    markSelected();
+    renderSheet();
+    vibrate();
+    if (fly) flyToGaleria();
+  }
+
+  function selectStand(id, fly = true) {
+    const st = STAND[id];
+    if (!st || state.nav) return;
+    if (state.route) clearRoute();
+    if (state.galFloor !== st.f) {
+      state.galFloor = st.f;
+      renderGalFloors();
+      renderGalLabels();
+      applyGalFilters();
+    }
+    state.selected = id;
+    state.sheet = 'stand';
+    markSelected();
+    renderSheet();
+    updateGalView();
+    vibrate();
+    if (!map) return;
+    // la ficha es alta: si el stand queda debajo de ella (o de la barra de arriba), se centra en lo visible
+    requestAnimationFrame(() => {
+      const o = overlayHeights(), p = map.project(st.center);
+      const hidden = p.y < o.top + 30 || p.y > o.h - o.bottom - 40;
+      if (!fly && !hidden) return;
+      map.easeTo({ center: st.center, zoom: fly ? Math.max(map.getZoom(), 18.6) : map.getZoom(), offset: [0, (o.top - o.bottom) / 2], duration: reduceMotion ? 0 : 800 });
+    });
+  }
+
+  // Toque en el mapa: un stand abre su ficha; el resto del edificio, la galería
+  function galClick(e) {
+    if (state.nav || !map.getLayer('gal-foot')) return false;
+    const layers = (state.is3d ? ['gal-3d-act', 'gal-3d-body'] : ['gal-stand']).concat('gal-foot');
+    const hit = map.queryRenderedFeatures(e.point, { layers });
+    if (!hit.length) return false;
+    const st = hit.find((f) => f.properties.k === 'stand');
+    if (st) selectStand(st.properties.id, false);
+    else if (state.sheet !== 'galeria') openGaleria(!galIndoor);
+    return true;
+  }
+
+  function indoorSteps(st) {
+    const steps = [{ icon: 'door', text: `Entra por <b>${esc(GAL.ingreso)}</b>` }];
+    if (st.f > 1) steps.push({ icon: 'escalator', text: `Sube por la escalera mecánica al <b>${pisoTxt(st.f)}</b> (el ascensor está al fondo)` });
+    steps.push({ icon: st.side === 'derecha' ? 'turn-right' : 'turn-left', text: `Avanza por el pasillo: es el <b>${ordinal(st.k + 1)} stand a tu ${st.side}</b>` });
+    return steps;
+  }
+
+  function standCardHTML(st) {
+    const c = st.cat && CAT[st.cat];
+    return `<button class="mini-card stand-card ${c ? '' : 'is-free'}" data-stand="${st.id}" style="--c:${c ? c.color : '#9AA6B2'}">
+      <span class="mc-icon">${c ? c.emoji : '＋'}</span>
+      <span class="sc-text"><b>${esc(st.nombre || 'Disponible')}</b><small>Stand ${st.num} · ${c ? c.corto : 'Alquiler'}</small></span>
+    </button>`;
+  }
+
+  function galeriaSheetHTML() {
+    const f = state.galFloor, list = standsOf(f), libres = list.filter((s) => !s.nombre).length, oi = openInfo(GAL);
+    const tiendas = list.length - libres;
+    return `<div class="place">
+        <div class="place-top">
+          <span class="mc-icon lg gal-ico">${ico('layers')}</span>
+          <div class="place-info">
+            <h2>${esc(GAL.nombre)}<span class="sim-badge">Simulación</span></h2>
+            <div class="place-cats">${esc(GAL.ingreso)} · ${GAL.pisos.length} pisos · ${STANDS.length} stands</div>
+            <div class="place-meta"><span class="${oi.open ? 'ok' : 'off'}">${oi.text}</span></div>
+          </div>
+          <button class="icon-btn" data-act="close" aria-label="Cerrar">${ico('x')}</button>
+        </div>
+        <p class="gal-floor-title"><b>${pisoTxt(f)} · ${esc(GAL.pisos[f - 1].tema)}</b> · ${tiendas} ${tiendas === 1 ? 'tienda' : 'tiendas'}${libres ? ` · ${libres} ${libres === 1 ? 'libre' : 'libres'}` : ''}</p>
+      </div>
+      <div class="carousel">${list.map(standCardHTML).join('')}</div>
+      <div class="place-actions">
+        <button class="btn btn-ghost" data-act="gal-3d">${ico(state.is3d ? 'map' : 'cube')} ${state.is3d ? 'Ver plano' : 'Ver en 3D'}</button>
+        <button class="btn btn-go" data-act="gal-route">${ico('nav')} Ir · ${walkMin(walkM(galEntrance))} min</button>
+      </div>`;
+  }
+
+  function standSheetHTML(st) {
+    const c = st.cat && CAT[st.cat], oi = openInfo(GAL);
+    return `<div class="place">
+        <div class="place-top">
+          <span class="mc-icon lg" style="--c:${c ? c.color : '#9AA6B2'}">${c ? c.emoji : '＋'}</span>
+          <div class="place-info">
+            <h2>${esc(st.nombre || 'Stand disponible')}</h2>
+            <div class="place-cats">${c ? c.nombre : 'Para alquilar'} · ${esc(GAL.nombre)}</div>
+            <div class="place-meta">${c ? `<span class="${oi.open ? 'ok' : 'off'}">${oi.text}</span>` : '<span class="sim-badge">Simulación</span>'}</div>
+          </div>
+          <button class="icon-btn" data-act="close" aria-label="Cerrar">${ico('x')}</button>
+        </div>
+        <div class="stand-where">
+          <span class="sw-box"><small>Piso</small><b>${st.f}</b></span>
+          <span class="sw-box"><small>Stand</small><b>${st.num}</b></span>
+          <p>${esc(st.desc || 'Stand libre en una galería de demostración.')}</p>
+        </div>
+        <ol class="indoor-steps" aria-label="Cómo llegar dentro de la galería">
+          ${indoorSteps(st).map((s) => `<li>${ico(s.icon)}<span>${s.text}</span></li>`).join('')}
+        </ol>
+        <div class="place-actions">
+          <button class="btn btn-ghost" data-act="gal-open">${ico('layers')} Galería</button>
+          <button class="btn btn-go" data-act="route">${ico('nav')} Ir · ${walkMin(walkM(galEntrance))} min</button>
+        </div>
+        ${c ? `<a class="gm-link" href="#/buscar?cat=${st.cat}">Ver más de ${esc(c.nombre.toLowerCase())} en Gamarra ${ico('chev')}</a>` : ''}
+      </div>`;
   }
 
   // ---------------------------------------------------------------- chips y ubicación (mapa)
@@ -472,7 +887,11 @@
     if (!body) return;
     let html = '';
     const mode = state.sheet;
-    if (mode === 'place' && state.selected) {
+    if (mode === 'galeria') {
+      html = galeriaSheetHTML();
+    } else if (mode === 'stand' && selectedStand()) {
+      html = standSheetHTML(selectedStand());
+    } else if (mode === 'place' && BY_ID[state.selected]) {
       const s = BY_ID[state.selected], c = CAT[s.categorias[0]], r = ratingOf(s), oi = openInfo(s), d = walkM(s);
       html = `<div class="place">
         <div class="place-top">
@@ -516,7 +935,19 @@
           <button class="btn btn-stop" data-act="exit-nav">Salir</button>
         </div>
         <p class="fine center">Simulación del recorrido a pie (demo acelerada)</p>`;
-    } else if (mode === 'arrived' && state.selected) {
+    } else if (mode === 'arrived' && galTarget(state.selected)) {
+      const st = selectedStand();
+      html = `<div class="arrived">
+          <div class="arrived-emoji">🏬</div>
+          <h2>¡Llegaste a ${esc(GAL.nombre)}!</h2>
+          <p>${st ? `Sube al <b>${pisoTxt(st.f)}</b>: ${esc(st.nombre || 'el stand')} está en el <b>stand ${st.num}</b>.` : `Entra por ${esc(GAL.ingreso)}.`}</p>
+          <div class="points-pill">+5 puntos 🏅</div>
+          <div class="place-actions">
+            <button class="btn btn-ghost" data-act="close">Listo</button>
+            <button class="btn btn-go" data-act="gal-arrived">${ico('layers')} Ver el plano</button>
+          </div>
+        </div>`;
+    } else if (mode === 'arrived' && BY_ID[state.selected]) {
       const s = BY_ID[state.selected];
       html = `<div class="arrived">
           <div class="arrived-emoji">🎉</div>
@@ -564,6 +995,8 @@
         </div>
         <div class="carousel">${list.slice(0, 14).map(miniCardHTML).join('')}</div>`;
     }
+    // Con la galería abierta se ocultan los filtros y se atenúan los demás pines
+    $('#screen-mapa').classList.toggle('gal-focus', state.sheet === 'galeria' || state.sheet === 'stand');
     body.innerHTML = html;
     body.classList.remove('swap');
     void body.offsetWidth;
@@ -572,14 +1005,21 @@
 
   function onSheetClick(e) {
     const card = e.target.closest('.mini-card');
+    if (card && card.dataset.stand) { selectStand(card.dataset.stand); return; }
     if (card) { selectStore(card.dataset.id); return; }
+    const tab = e.target.closest('[data-floor]');
+    if (tab) { setGalFloor(+tab.dataset.floor); return; }
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
     if (act === 'close') deselect();
     else if (act === 'detail') location.hash = '#/tienda/' + state.selected;
     else if (act === 'route') startRoute(state.selected);
-    else if (act === 'cancel-route') { clearRoute(); state.sheet = 'place'; renderSheet(); }
+    else if (act === 'cancel-route') { clearRoute(); state.sheet = sheetFor(state.selected); renderSheet(); }
+    else if (act === 'gal-route') startRoute(GAL.id);
+    else if (act === 'gal-open') openGaleria();
+    else if (act === 'gal-3d') { toggle3d(); flyToGaleria(); }
+    else if (act === 'gal-arrived') { const st = selectedStand(); if (st) { flyToGaleria(); selectStand(st.id, false); } else openGaleria(); }
     else if (act === 'start-nav') startNav();
     else if (act === 'exit-nav') exitNav(false);
     else if (act === 'report-store') { state.report = null; selectStore(btn.dataset.id); }
@@ -609,7 +1049,7 @@
   }
 
   async function startRoute(id) {
-    const s = BY_ID[id];
+    const s = targetOf(id);
     if (!s) return;
     if (location.hash.indexOf('#/mapa') !== 0) location.hash = '#/mapa';
     state.selected = id;
@@ -736,6 +1176,17 @@
     map.easeTo({ pitch: state.is3d ? 55 : 0, bearing: 0, zoom: 17, offset: [0, (o.top - o.bottom) / 2], duration: 900 });
   }
 
+  function toggle3d() {
+    state.is3d = !state.is3d;
+    $('#btn-3d').classList.toggle('is-on', state.is3d);
+    $('#btn-3d').setAttribute('aria-pressed', state.is3d);
+    if (state.sheet === 'galeria') renderSheet();
+    if (!map) return;
+    map.setLayoutProperty('building-3d', 'visibility', state.is3d ? 'visible' : 'none');
+    applyGalFilters();
+    map.easeTo({ pitch: state.is3d ? 55 : 0, bearing: state.is3d ? -18 : 0, duration: 900 });
+  }
+
   function endNavUI() {
     state.nav = null;
     $('#app').classList.remove('is-nav');
@@ -746,7 +1197,7 @@
   function exitNav() {
     endNavUI();
     clearRoute();
-    state.sheet = state.selected ? 'place' : 'browse';
+    state.sheet = sheetFor(state.selected);
     renderSheet();
     resetCamera();
   }
@@ -2152,6 +2603,7 @@
           ${!isStandalone() && !installEvt && isIOS ? `<div class="menu-hint">${ico('download')} <span>Para instalar en iPhone: toca <b>Compartir</b> y luego <b>Agregar a inicio</b>.</span></div>` : ''}
           <button data-m="theme">${ico(state.theme === 'dark' ? 'sun' : 'moon')} ${state.theme === 'dark' ? 'Modo día' : 'Modo noche'}</button>
           <a href="#/guardados" data-close>${ico('heart')} Mis tiendas guardadas</a>
+          <button data-m="galeria">${ico('layers')} Galería por pisos (simulación)</button>
           <button data-m="loc">${ico('locate')} ${state.user.simulated ? 'Usar mi ubicación real' : 'Simular que estoy en Gamarra'}</button>
           <button data-m="reset">${ico('refresh')} Restablecer datos de demo</button>
         </nav>
@@ -2171,6 +2623,7 @@
             closeModal();
           } else if (act === 'theme') { applyTheme(state.theme === 'dark' ? 'light' : 'dark', true); closeModal(); }
           else if (act === 'loc') { closeModal(); state.user.simulated ? useRealLocation() : useSimulatedLocation(); }
+          else if (act === 'galeria') { closeModal(); location.hash = '#/mapa'; openGaleria(); }
           else if (act === 'reset') {
             if (confirm('¿Borrar tus reseñas, reportes, guardados y puntos de este dispositivo?')) { storage.clear(); location.hash = '#/mapa'; location.reload(); }
           }
@@ -2218,6 +2671,11 @@
     if (view === 'mapa') {
       showTab('mapa');
       if (params.get('cat') && CAT[params.get('cat')]) { state.mapFilter = { type: 'cat', cat: params.get('cat') }; applyMapFilter(true); }
+      // #/mapa?galeria=3 abre la galería simulada en ese piso
+      if (params.has('galeria') && map) {
+        const show = () => { setGalFloor(+params.get('galeria') || 1); openGaleria(); };
+        if (map.loaded()) show(); else map.once('load', () => setTimeout(show, 60));
+      }
     } else if (view === 'buscar') {
       showTab('buscar');
       const cat = params.get('cat');
@@ -2264,13 +2722,12 @@
       b.dataset.loc === 'real' ? useRealLocation() : useSimulatedLocation();
     });
     $('#btn-theme').addEventListener('click', () => applyTheme(state.theme === 'dark' ? 'light' : 'dark', true));
-    $('#btn-3d').addEventListener('click', () => {
-      state.is3d = !state.is3d;
-      $('#btn-3d').classList.toggle('is-on', state.is3d);
-      $('#btn-3d').setAttribute('aria-pressed', state.is3d);
-      if (!map) return;
-      map.setLayoutProperty('building-3d', 'visibility', state.is3d ? 'visible' : 'none');
-      map.easeTo({ pitch: state.is3d ? 55 : 0, bearing: state.is3d ? -18 : 0, duration: 900 });
+    $('#btn-3d').addEventListener('click', toggle3d);
+    $('#gal-floors').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-floor], [data-gal]');
+      if (!b) return;
+      if (b.dataset.gal) openGaleria(false);
+      else setGalFloor(+b.dataset.floor);
     });
     $('#btn-locate').addEventListener('click', () => afterUserMoved(true));
     $('#btn-report').addEventListener('click', openReportPicker);

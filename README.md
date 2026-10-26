@@ -12,6 +12,7 @@ Web que se comporta como app para encontrar tiendas del **Emporio Comercial de G
 | **Ficha de producto** (`#/tienda/<id>?p=<producto>`) | Ilustración que cambia con el color, precio por menor y por mayor (tabla por cantidad), colores, tallas, cantidad con atajos (media docena, docena), material, stock y botón **Agregar al pedido**. |
 | **Pedido** (`#/pedido`) | Carrito agrupado por tienda. Aplica el precio por mayor solo, avisa cuánto falta para llegar al mayor, muestra el ahorro y permite **separar el pedido** (pagas al recoger) o **comprar con Yape**: escribes tu celular, apruebas la notificación en tu app Yape y la app detecta el pago y muestra **¡Pago realizado!** con el código de recojo; la constancia llega al correo. |
 | **Guardados** (`#/guardados`) | Tiendas marcadas con el corazón. |
+| **Galería por pisos** (`#/mapa?galeria=1`) | Simulación de un edificio de 5 pisos con 10 stands por piso. Al acercarte se ve el plano del piso elegido (stands por color de categoría, escaleras, ascensor, SS.HH., ingreso y salida) y una barra para cambiar de piso. En 3D los pisos de abajo se ven macizos, el actual abierto con sus stands y los de arriba como vidrio. Cada stand tiene ficha con piso, número, cómo llegar dentro de la galería y ruta a pie hasta el ingreso. El número tras `galeria=` abre ese piso. |
 
 ## Probarla en tu computadora
 
@@ -32,6 +33,7 @@ index.html            esqueleto de las pantallas
 css/app.css           estilos (tokens de color, modo noche, marco de celular)
 js/catalog.js         tipos de producto, zona del emporio, estación y reportes demo
 js/data.js            tiendas y reseñas (datos de demostración)
+js/galeria.js         galería de varios pisos simulada: contorno, pisos y stands
 js/mapstyle.js        estilo de mapa tipo Waze (día y noche)
 js/garments.js        ilustraciones SVG de productos que se pintan con el color elegido
 js/payments.js        pagos con Yape vía ProntoPaga (modo demo o modo api con tu backend)
@@ -79,6 +81,12 @@ Cada tienda en `js/data.js` tiene esta forma:
 Tip: en Google Maps, mantén presionado el punto exacto de la tienda y copia las coordenadas para `lat` y `lng`.
 
 Las tiendas demo no tienen WhatsApp propio (`"whatsapp": null`). Para probar el botón, pon un número de prueba en `window.UBI_WHATSAPP_DEMO` (`js/catalog.js`): todas las tiendas demo abrirán ese chat. Si está vacío, el botón avisa que la tienda aún no tiene WhatsApp.
+
+## Galería de varios pisos (simulación)
+
+`js/galeria.js` describe un edificio: el contorno (4 esquinas), la altura de cada piso, el horario y, por piso, un tema y 10 stands (`[nombre, categoría, descripción]` o `null` si está libre). La app arma el plano sola: vestíbulo con escalera mecánica al frente, 5 stands a cada lado del pasillo y, al fondo, escaleras, ascensor y SS.HH. Los stands se numeran por piso (101–110, 201–210…): del 1 al 5 a la derecha entrando y del 6 al 10 a la izquierda, de fondo a frente.
+
+El contorno es el de un edificio real de OpenStreetMap (Jr. San Cristóbal 1580); el nombre "Galería Modelo", los stands y sus tiendas son ficticios. Para usar otro edificio, cambia `esquinas` y `teselaId` (id del edificio en las teselas de OpenFreeMap, que se oculta para no duplicarlo; en un edificio que en OSM es una vía es el id de la vía × 10 + 2).
 
 ## Datos y servicios
 
