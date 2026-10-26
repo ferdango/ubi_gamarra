@@ -102,7 +102,8 @@
   const gmapsSearch = (s) => `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`;
   const gmapsDir = (s) => `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}&travelmode=walking`;
   const catNames = (s) => s.categorias.map((id) => CAT[id].corto).join(' · ');
-  const vibrate = (ms = 12) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* nada */ } };
+  // Chrome bloquea la vibración hasta que la persona toca la pantalla por primera vez
+  const vibrate = (ms = 12) => { try { if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) navigator.vibrate(ms); } catch (e) { /* nada */ } };
 
   // ---------------------------------------------------------------- íconos (trazos de 24 px)
   const ICONS = {

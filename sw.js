@@ -1,12 +1,12 @@
 /* UbiGamarra · service worker: app instalable y usable sin conexión */
-const VERSION = 'v5';
+const VERSION = 'v6';
 const SHELL_CACHE = `ubi-shell-${VERSION}`;
 const CDN_CACHE = `ubi-cdn-${VERSION}`;
 const TILE_CACHE = 'ubi-tiles';
 const TILE_LIMIT = 600;
 
 const SHELL = [
-  './', './index.html', './css/app.css?v=5', './js/app.js?v=5', './js/catalog.js?v=5', './js/data.js?v=5', './js/mapstyle.js?v=5', './js/garments.js?v=5', './js/payments.js?v=5',
+  './', './index.html', './css/app.css?v=5', './js/app.js?v=6', './js/catalog.js?v=5', './js/data.js?v=5', './js/mapstyle.js?v=5', './js/garments.js?v=5', './js/payments.js?v=5',
   './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/icon-32.png',
 ];
 const CDN = [
