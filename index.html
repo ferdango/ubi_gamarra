@@ -17,9 +17,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="css/app.css?v=2" rel="stylesheet">
+  <link href="css/app.css?v=5" rel="stylesheet">
 </head>
 <body>
   <div class="desk-caption" aria-hidden="true">
@@ -66,11 +66,11 @@
     <!-- PANTALLA 2 · BÚSQUEDA -->
     <section class="screen screen-search" id="screen-buscar" aria-label="Buscar tiendas">
       <header class="search-head">
-        <h1 class="screen-title">Buscar tiendas</h1>
+        <h1 class="screen-title">Buscar en Gamarra</h1>
         <label class="search-box">
           <span class="ico" data-i="search"></span>
           <input id="search-input" type="search" inputmode="search" enterkeyhint="search" autocomplete="off"
-                 placeholder="Jeans, polos pima, uniformes…" aria-label="Buscar tiendas o productos">
+                 placeholder="Tiendas o productos: jean mom, polo pima…" aria-label="Buscar tiendas o productos">
           <button class="icon-btn" id="search-clear" aria-label="Borrar búsqueda" hidden><span class="ico" data-i="x"></span></button>
           <button class="icon-btn mic-btn" id="search-mic" aria-label="Buscar por voz"><span class="ico" data-i="mic"></span></button>
         </label>
@@ -87,12 +87,21 @@
       <div class="screen-scroll" id="saved-list"></div>
     </section>
 
+    <!-- PEDIDO (carrito) -->
+    <section class="screen screen-cart" id="screen-pedido" aria-label="Mi pedido">
+      <header class="search-head">
+        <h1 class="screen-title">Mi pedido</h1>
+      </header>
+      <div class="screen-scroll" id="cart-view"></div>
+    </section>
+
     <!-- PANTALLA 3 · DETALLE DE TIENDA -->
     <section class="detail" id="detail" aria-label="Detalle de tienda" aria-hidden="true"></section>
 
     <nav class="tabbar" id="tabbar" aria-label="Navegación principal">
       <a href="#/mapa" data-tab="mapa"><span class="ico" data-i="map"></span><span>Mapa</span></a>
       <a href="#/buscar" data-tab="buscar"><span class="ico" data-i="search"></span><span>Buscar</span></a>
+      <a href="#/pedido" data-tab="pedido"><span class="ico" data-i="bag"></span><span>Pedido</span><b class="badge cart-badge" hidden></b></a>
       <a href="#/guardados" data-tab="guardados"><span class="ico" data-i="heart"></span><span>Guardados</span><b class="badge" id="fav-badge" hidden></b></a>
     </nav>
 
@@ -102,10 +111,24 @@
 
   <div id="mini-map-holder" hidden><div id="mini-map" class="mini-map"></div></div>
 
+  <!-- Degradados compartidos por las ilustraciones de producto -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="ug-shine" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".55" stop-color="#fff" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="ug-print" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#FF6FB5"/><stop offset="1" stop-color="#FFB800"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="js/catalog.js?v=2"></script>
-  <script src="js/data.js?v=2"></script>
-  <script src="js/mapstyle.js?v=2"></script>
-  <script src="js/app.js?v=2"></script>
+  <script src="js/catalog.js?v=5"></script>
+  <script src="js/data.js?v=5"></script>
+  <script src="js/mapstyle.js?v=5"></script>
+  <script src="js/garments.js?v=5"></script>
+  <script src="js/payments.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
 </body>
 </html>

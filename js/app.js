@@ -13,6 +13,14 @@
   const GAMARRA = { lat: -12.0664, lng: -77.0138 };
   const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
   const PAY_ICON = { Efectivo: '💵', Yape: '📱', Plin: '📲', Tarjeta: '💳', Transferencia: '🏦' };
+  const TIPO_LABEL = window.UBI_TIPO_LABEL;
+  // unidad de venta: [abreviatura para cantidades, nombre para "S/ 28 / kilo"]
+  const UNIT = {
+    unidad: ['und.', 'unidad'], kilo: ['kg', 'kilo'], metro: ['m', 'metro'], docena: ['doc.', 'docena'], ciento: ['cientos', 'ciento'],
+    millar: ['millares', 'millar'], rollo: ['rollos', 'rollo'], color: ['colores', 'color'], 'diseño': ['diseños', 'diseño'], alquiler: ['alquileres', 'alquiler'],
+  };
+  const unitOf = (p) => UNIT[p.unidad] || UNIT.unidad;
+  const money = (v) => 'S/ ' + (Number.isInteger(v) ? String(v) : v.toFixed(2).replace('.', ','));
 
   // ---------------------------------------------------------------- utilidades
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -129,6 +137,13 @@
     'slight-right': '<path d="M9 20v-6.5l7-7M16 12V6.5h-5.5"/>',
     uturn: '<path d="M8 20V9.5a4 4 0 0 1 8 0V14M12.5 10.5 16 14l3.5-3.5"/>',
     flag: '<path d="M5.5 21V4M5.5 4.5h11l-2 4 2 4h-11"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
+    bag: '<path d="M5 8h14l-1.2 12.2a1.5 1.5 0 0 1-1.5 1.3H7.7a1.5 1.5 0 0 1-1.5-1.3L5 8Z"/><path d="M9 10.5V7a3 3 0 0 1 6 0v3.5"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    tag: '<path d="M3.5 12.5V4h8.5l9 9-8.5 8.5-9-9Z"/><circle cx="8" cy="8.5" r="1.4"/>',
+    phone: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/>',
+    mail: '<rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="m4 7.5 8 6 8-6"/>',
   };
   const ico = (name, cls = '') => `<svg class="svg-ico ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
   function hydrateIcons(root = document) {
@@ -150,7 +165,7 @@
     report: null,
     route: null,
     nav: null,
-    search: { q: '', cat: null, mayor: false, menor: false, abierto: false, top: false, orden: 'cerca' },
+    search: { q: '', cat: null, mayor: false, menor: false, abierto: false, top: false, orden: 'cerca', vista: 'tiendas' },
     reviewSort: 'recientes',
     favs: new Set(storage.get('favs', [])),
     userReviews: storage.get('reviews', {}),
@@ -158,6 +173,9 @@
     userReports: storage.get('reports', []),
     votes: storage.get('votes', {}),
     points: storage.get('points', 0),
+    catalogFilter: 'todo',
+    cart: storage.get('cart', []), // [{sid, pid, color, talla, qty}]
+    orders: storage.get('orders', []),
   };
   const loadedAt = Date.now();
   const allReports = () => [
@@ -860,23 +878,29 @@
   function haystack(s) {
     return norm([s.nombre, s.descripcion, s.direccion.calle, s.direccion.interior,
       ...s.categorias.map((id) => `${CAT[id].nombre} ${CAT[id].claves.join(' ')}`),
-      ...s.productos.map((p) => p.nombre)].join(' '));
+      ...s.productos.map((p) => `${p.nombre} ${TIPO_LABEL[p.tipo] || ''} ${p.material}`)].join(' '));
   }
   const HAY = Object.fromEntries(STORES.map((s) => [s.id, haystack(s)]));
+  const PHAY = Object.fromEntries(STORES.map((s) => [s.id, Object.fromEntries(s.productos.map((p) => [p.id, norm(
+    `${p.nombre} ${TIPO_LABEL[p.tipo] || ''} ${p.material} ${CAT[p.cat].nombre} ${CAT[p.cat].claves.join(' ')} ${p.colores.map((c) => c.n).join(' ')} ${s.nombre}`)]))]));
+  const tokensOf = (q) => norm(q).split(/[^a-z0-9ñ]+/).filter((t) => t.length > 1);
+  const tokenMatch = (h, tokens) => tokens.every((t) => h.includes(t) || (t.length > 3 && t.endsWith('s') && h.includes(t.slice(0, -1))) || (t.length > 4 && t.endsWith('es') && h.includes(t.slice(0, -2))));
+  const minPrice = (s) => Math.min(...s.productos.map((p) => p.precio));
+
+  function storePasses(s, opts) {
+    if (opts.mayor && !s.venta.mayor) return false;
+    if (opts.menor && !s.venta.menor) return false;
+    if (opts.abierto && !openInfo(s).open) return false;
+    if (opts.top && ratingOf(s).avg < 4.5) return false;
+    return true;
+  }
 
   function searchStores(opts = state.search) {
-    const tokens = norm(opts.q).split(/[^a-z0-9ñ]+/).filter((t) => t.length > 1);
-    let list = STORES.filter((s) => {
-      if (opts.cat && !s.categorias.includes(opts.cat)) return false;
-      if (opts.mayor && !s.venta.mayor) return false;
-      if (opts.menor && !s.venta.menor) return false;
-      if (opts.abierto && !openInfo(s).open) return false;
-      if (opts.top && ratingOf(s).avg < 4.5) return false;
-      const h = HAY[s.id];
-      return tokens.every((t) => h.includes(t) || (t.length > 3 && t.endsWith('s') && h.includes(t.slice(0, -1))) || (t.length > 4 && t.endsWith('es') && h.includes(t.slice(0, -2))));
-    });
+    const tokens = tokensOf(opts.q);
+    let list = STORES.filter((s) => (!opts.cat || s.categorias.includes(opts.cat)) && storePasses(s, opts) && tokenMatch(HAY[s.id], tokens));
     const by = {
       cerca: (a, b) => walkM(a) - walkM(b),
+      precio: (a, b) => minPrice(a) - minPrice(b),
       valoradas: (a, b) => ratingOf(b).avg - ratingOf(a).avg,
       resenas: (a, b) => ratingOf(b).n - ratingOf(a).n,
     }[opts.orden];
@@ -884,6 +908,27 @@
     // Si se busca por texto, primero las coincidencias en el nombre
     if (tokens.length) list.sort((a, b) => (tokens.some((t) => norm(b.nombre).includes(t)) ? 1 : 0) - (tokens.some((t) => norm(a.nombre).includes(t)) ? 1 : 0));
     return list;
+  }
+
+  // Productos de todas las tiendas: sirve para comparar precios entre stands
+  function searchProducts(opts = state.search) {
+    const tokens = tokensOf(opts.q);
+    const out = [];
+    STORES.forEach((s) => {
+      if (!storePasses(s, opts)) return;
+      s.productos.forEach((p) => {
+        if (opts.cat && p.cat !== opts.cat) return;
+        if (opts.mayor && p.precioMayor == null) return;
+        if (tokenMatch(PHAY[s.id][p.id], tokens)) out.push({ s, p });
+      });
+    });
+    const by = {
+      cerca: (a, b) => walkM(a.s) - walkM(b.s),
+      precio: (a, b) => a.p.precio - b.p.precio,
+      valoradas: (a, b) => ratingOf(b.s).avg - ratingOf(a.s).avg,
+      resenas: (a, b) => b.p.vendidos - a.p.vendidos,
+    }[opts.orden];
+    return out.sort(by);
   }
 
   function storeCardHTML(s) {
@@ -903,7 +948,7 @@
           <span class="tag ${oi.open ? 'tag-ok' : 'tag-off'}">${oi.short}</span>
           ${s.venta.mayor ? '<span class="tag">Por mayor</span>' : ''}
           ${s.venta.menor ? '<span class="tag">Por menor</span>' : ''}
-          <span class="tag">desde S/ ${Math.min(...s.productos.map((p) => p.desde))}</span>
+          <span class="tag">${s.productos.length} productos · desde ${money(minPrice(s))}</span>
         </div>
       </div>
     </article>`;
@@ -912,12 +957,11 @@
   function renderFilters() {
     const s = state.search;
     const chip = (key, label) => `<button class="fchip ${s[key] ? 'is-on' : ''}" data-filter="${key}" aria-pressed="${s[key]}">${s[key] ? ico('check') : ''}${label}</button>`;
+    const opt = (v, label) => `<option value="${v}" ${s.orden === v ? 'selected' : ''}>${label}</option>`;
     $('#search-filters').innerHTML = `
       ${chip('mayor', 'Por mayor')}${chip('menor', 'Por menor')}${chip('abierto', 'Abierto ahora')}${chip('top', '★ 4,5 o más')}
       <label class="fchip fselect">${ico('clock')}<select id="search-sort" aria-label="Ordenar resultados">
-        <option value="cerca" ${s.orden === 'cerca' ? 'selected' : ''}>Más cerca</option>
-        <option value="valoradas" ${s.orden === 'valoradas' ? 'selected' : ''}>Mejor valoradas</option>
-        <option value="resenas" ${s.orden === 'resenas' ? 'selected' : ''}>Más reseñas</option>
+        ${opt('cerca', 'Más cerca')}${opt('precio', 'Menor precio')}${opt('valoradas', 'Mejor valoradas')}${opt('resenas', s.vista === 'productos' ? 'Más vendidos' : 'Más reseñas')}
       </select></label>`;
   }
 
@@ -936,31 +980,44 @@
     $('[data-tab="buscar"]', $('#tabbar')).setAttribute('href', searchHash());
     const hasFilters = s.mayor || s.menor || s.abierto || s.top;
     if (!s.q && !s.cat && !hasFilters) {
+      const offers = STORES.flatMap((x) => x.productos.filter((p) => p.etiqueta === 'Oferta').map((p) => ({ s: x, p })))
+        .sort((a, b) => (b.p.precioAntes - b.p.precio) / b.p.precioAntes - (a.p.precioAntes - a.p.precio) / a.p.precioAntes);
       box.innerHTML = `
         <h2 class="sec-title">Buscar por tipo de producto</h2>
         <div class="cat-grid">${CATS.map((c) => {
           const n = STORES.filter((x) => x.categorias.includes(c.id)).length;
           return `<a class="cat-tile" href="#/buscar?cat=${c.id}" style="--c:${c.color}"><span class="ct-emoji">${c.emoji}</span><span class="ct-name">${c.nombre}</span><span class="ct-count">${n} tiendas</span></a>`;
         }).join('')}</div>
+        <div class="sec-head-row"><h2 class="sec-title">🔥 Ofertas del día</h2><span class="muted">${offers.length} productos</span></div>
+        <div class="product-row">${offers.slice(0, 12).map(({ s: x, p }) => productCardHTML(x, p, true)).join('')}</div>
         <h2 class="sec-title">Búsquedas populares</h2>
         <div class="popular">${window.UBI_POPULAR.map((p) => `<button class="pop-chip" data-pop="${esc(p)}">${ico('search')} ${esc(p)}</button>`).join('')}</div>
         <h2 class="sec-title">Mejor valoradas</h2>
         <div class="card-list">${STORES.slice().sort((a, b) => ratingOf(b).avg - ratingOf(a).avg).slice(0, 4).map(storeCardHTML).join('')}</div>
-        <p class="demo-note">Tiendas y reseñas de demostración ubicadas en calles reales de Gamarra.</p>`;
+        <p class="demo-note">Tiendas, productos y reseñas de demostración ubicadas en calles reales de Gamarra.</p>`;
       return;
     }
-    const list = searchStores();
+    const stores = searchStores();
+    const products = searchProducts();
+    const vista = s.vista === 'productos' ? 'productos' : 'tiendas';
+    const n = vista === 'productos' ? products.length : stores.length;
     const c = s.cat && CAT[s.cat];
+    const empty = `<div class="empty"><div class="empty-emoji">🧐</div><b>No encontramos ${vista}${s.q ? ` para “${esc(s.q)}”` : ''}</b><span>Prueba con otra palabra o quita algún filtro.</span>
+        <div class="popular">${window.UBI_POPULAR.slice(0, 4).map((p) => `<button class="pop-chip" data-pop="${esc(p)}">${esc(p)}</button>`).join('')}</div></div>`;
     box.innerHTML = `
       ${c ? `<div class="cat-banner" style="--c:${c.color}"><span class="cb-emoji">${c.emoji}</span><div><b>${c.nombre}</b><span>${STORES.filter((x) => x.categorias.includes(c.id)).length} tiendas en Gamarra</span></div><a class="icon-btn" href="#/buscar${s.q ? '?q=' + encodeURIComponent(s.q) : ''}" aria-label="Quitar categoría">${ico('x')}</a></div>` : ''}
-      <div class="results-head">
-        <span><b>${list.length}</b> ${list.length === 1 ? 'tienda' : 'tiendas'}${s.q ? ` para “${esc(s.q)}”` : ''}</span>
-        ${list.length ? `<button class="btn btn-soft btn-sm" id="see-on-map">${ico('map')} Ver en mapa</button>` : ''}
+      <div class="seg seg-results" role="tablist">
+        <button role="tab" class="${vista === 'tiendas' ? 'is-on' : ''}" aria-selected="${vista === 'tiendas'}" data-vista="tiendas">Tiendas (${stores.length})</button>
+        <button role="tab" class="${vista === 'productos' ? 'is-on' : ''}" aria-selected="${vista === 'productos'}" data-vista="productos">Productos (${products.length})</button>
       </div>
-      ${list.length
-        ? `<div class="card-list">${list.map(storeCardHTML).join('')}</div>`
-        : `<div class="empty"><div class="empty-emoji">🧐</div><b>No encontramos tiendas${s.q ? ` para “${esc(s.q)}”` : ''}</b><span>Prueba con otra palabra o quita algún filtro.</span>
-            <div class="popular">${window.UBI_POPULAR.slice(0, 4).map((p) => `<button class="pop-chip" data-pop="${esc(p)}">${esc(p)}</button>`).join('')}</div></div>`}`;
+      <div class="results-head">
+        <span><b>${n}</b> ${vista === 'productos' ? (n === 1 ? 'producto' : 'productos') : (n === 1 ? 'tienda' : 'tiendas')}${s.q ? ` para “${esc(s.q)}”` : ''}</span>
+        ${vista === 'tiendas' && n ? `<button class="btn btn-soft btn-sm" id="see-on-map">${ico('map')} Ver en mapa</button>` : ''}
+        ${vista === 'productos' && n > 1 && s.orden !== 'precio' ? '<button class="link-btn" data-sort-price>Ordenar por precio</button>' : ''}
+      </div>
+      ${!n ? empty : vista === 'productos'
+        ? `<div class="product-grid">${products.slice(0, 60).map(({ s: x, p }) => productCardHTML(x, p, true)).join('')}</div>${products.length > 60 ? '<p class="fine center">Mostrando 60 productos. Afina tu búsqueda para ver más.</p>' : ''}`
+        : `<div class="card-list">${stores.map(storeCardHTML).join('')}</div>`}`;
   }
 
   function initSearch() {
@@ -993,6 +1050,9 @@
     $('#search-results').addEventListener('click', (e) => {
       const pop = e.target.closest('[data-pop]');
       if (pop) { input.value = pop.dataset.pop; state.search.q = pop.dataset.pop; history.replaceState(null, '', searchHash()); renderResults(); return; }
+      const vista = e.target.closest('[data-vista]');
+      if (vista) { state.search.vista = vista.dataset.vista; renderFilters(); renderResults(); return; }
+      if (e.target.closest('[data-sort-price]')) { state.search.orden = 'precio'; renderFilters(); renderResults(); return; }
       if (e.target.closest('#see-on-map')) {
         const s = state.search;
         state.mapFilter = s.cat && !s.q && !(s.mayor || s.menor || s.abierto || s.top)
@@ -1033,6 +1093,673 @@
     btn.classList.add('is-listening');
     toast('Te escucho… di lo que buscas 🎙️', { ms: 2000 });
     voice.start();
+  }
+
+  // ---------------------------------------------------------------- catálogo y pedido (e-commerce)
+  const productOf = (sid, pid) => (BY_ID[sid] ? BY_ID[sid].productos.find((p) => p.id === pid) : null);
+  const cartQty = (sid, pid) => state.cart.filter((i) => i.sid === sid && i.pid === pid).reduce((a, i) => a + i.qty, 0);
+  const cartUnits = () => state.cart.reduce((a, i) => a + i.qty, 0);
+  // El precio por mayor se aplica por producto sumando todos sus colores y tallas, como en los stands de Gamarra
+  const unitPrice = (p, qty) => (p.precioMayor != null && qty >= p.minMayor ? p.precioMayor : p.precio);
+  const colorHex = (p, name) => ((p.colores.find((c) => c.n === name) || p.colores[0] || {}).hex);
+  const BADGE_CLASS = { 'Más vendido': 'b-top', Nuevo: 'b-new', Oferta: 'b-sale' };
+
+  function saveCart() {
+    storage.set('cart', state.cart);
+    updateCartBadges();
+  }
+
+  function updateCartBadges() {
+    const n = cartUnits();
+    const txt = n > 99 ? '99+' : String(n);
+    $$('.cart-badge').forEach((b) => { b.hidden = !n; b.textContent = txt; });
+  }
+
+  function cartGroups() {
+    const order = [];
+    const groups = {};
+    state.cart.forEach((item, index) => {
+      const s = BY_ID[item.sid], p = productOf(item.sid, item.pid);
+      if (!s || !p) return;
+      if (!groups[s.id]) { groups[s.id] = { s, lines: [] }; order.push(s.id); }
+      groups[s.id].lines.push({ ...item, index, p });
+    });
+    return order.map((sid) => {
+      const g = groups[sid];
+      let subtotal = 0, savings = 0, units = 0;
+      const nudges = [];
+      const seen = new Set();
+      g.lines.forEach((l) => {
+        const q = cartQty(sid, l.pid);
+        l.unit = unitPrice(l.p, q);
+        l.mayor = l.unit !== l.p.precio;
+        subtotal += l.unit * l.qty;
+        savings += (l.p.precio - l.unit) * l.qty;
+        units += l.qty;
+        if (!seen.has(l.pid) && l.p.precioMayor != null && q < l.p.minMayor) {
+          nudges.push({ p: l.p, need: l.p.minMayor - q });
+        }
+        seen.add(l.pid);
+      });
+      return { ...g, subtotal, savings, units, nudges };
+    });
+  }
+
+  function productCardHTML(s, p, showStore) {
+    const c = CAT[p.cat] || CAT[s.categorias[0]];
+    const inCart = cartQty(s.id, p.id);
+    const u = unitOf(p);
+    return `<button class="pcard" data-sid="${s.id}" data-pid="${p.id}" style="--c:${c.color}" aria-label="${esc(p.nombre)}, ${money(p.precio)}">
+      <span class="pc-img">${garmentSVG(p.tipo, p.colores[0] && p.colores[0].hex)}
+        ${p.etiqueta ? `<span class="pc-badge ${BADGE_CLASS[p.etiqueta] || ''}">${p.etiqueta === 'Oferta' ? `-${Math.round((1 - p.precio / p.precioAntes) * 100)}%` : p.etiqueta}</span>` : ''}
+        ${inCart ? `<span class="pc-incart">${ico('bag')}${inCart}</span>` : ''}
+        <span class="pc-add" aria-hidden="true">${ico('plus')}</span>
+      </span>
+      <span class="pc-body">
+        ${showStore ? `<span class="pc-store">${CAT[s.categorias[0]].emoji} ${esc(s.nombre)} · ${fmtDist(walkM(s))}</span>` : ''}
+        <span class="pc-name">${esc(p.nombre)}</span>
+        <span class="pc-price"><b>${money(p.precio)}</b>${p.precioAntes ? `<s>${money(p.precioAntes)}</s>` : ''}${p.unidad !== 'unidad' ? `<small>/${u[1]}</small>` : ''}</span>
+        ${p.precioMayor != null
+          ? `<span class="pc-mayor">${money(p.precioMayor)} x mayor <small>(${p.minMayor}+ ${u[0]})</small></span>`
+          : '<span class="pc-mayor is-off">Solo por menor</span>'}
+        <span class="pc-swatches">${p.colores.slice(0, 5).map((k) => `<i style="background:${k.hex}" title="${esc(k.n)}"></i>`).join('')}${p.colores.length > 5 ? `<em>+${p.colores.length - 5}</em>` : ''}</span>
+      </span>
+    </button>`;
+  }
+
+  function catalogHTML(s) {
+    const tipos = [...new Set(s.productos.map((p) => p.tipo))];
+    const hasOffers = s.productos.some((p) => p.etiqueta === 'Oferta');
+    const f = state.catalogFilter;
+    const list = s.productos.filter((p) => f === 'todo' || (f === 'ofertas' ? p.etiqueta === 'Oferta' : p.tipo === f));
+    const chip = (v, label) => `<button class="fchip ${f === v ? 'is-on' : ''}" data-cf="${v}" aria-pressed="${f === v}">${label}</button>`;
+    return `<div class="sec-head"><h2>Catálogo</h2><span class="muted">${s.productos.length} productos</span></div>
+      <div class="mayor-banner ${s.venta.mayor ? '' : 'is-off'}">${ico('tag')}<span>${s.venta.mayor
+        ? `<b>Precio por mayor desde ${esc(s.venta.minimoMayor)}</b> por producto (puedes combinar colores y tallas). Se aplica solo en tu pedido.`
+        : '<b>Venta solo por menor.</b> Separa tu pedido y paga al recoger.'}</span></div>
+      ${tipos.length > 1 || hasOffers ? `<div class="filter-row cat-filter">${chip('todo', 'Todo')}${hasOffers ? chip('ofertas', '🔥 Ofertas') : ''}${tipos.length > 1 ? tipos.map((t) => chip(t, TIPO_LABEL[t] || t)).join('') : ''}</div>` : ''}
+      <div class="product-grid">${list.map((p) => productCardHTML(s, p)).join('')}</div>
+      <p class="fine">Precios referenciales en soles. Separas tu pedido en la app y pagas en la tienda (${s.pagos.join(', ')}).</p>`;
+  }
+
+  function detailCtaHTML(s) {
+    const g = cartGroups().find((x) => x.s.id === s.id);
+    if (!g) return `<a class="btn btn-go btn-lg" href="${gmapsDir(s)}" target="_blank" rel="noopener">${ico('nav')} Cómo llegar con Google Maps</a>`;
+    return `<div class="cta-row">
+        <a class="btn btn-go btn-lg" href="#/pedido">${ico('bag')} Ver pedido · ${g.units} · ${money(g.subtotal)}</a>
+        <a class="round-btn cta-maps" href="${gmapsDir(s)}" target="_blank" rel="noopener" aria-label="Cómo llegar con Google Maps">${ico('nav')}</a>
+      </div>`;
+  }
+
+  function refreshDetailCommerce() {
+    const s = BY_ID[detailId];
+    if (!s || !$('#detail-catalog')) return;
+    $('#detail-catalog').innerHTML = catalogHTML(s);
+    $('#detail .detail-cta').innerHTML = detailCtaHTML(s);
+    updateCartBadges();
+  }
+
+  function addToCart(sid, pid, color, talla, qty) {
+    const line = state.cart.find((i) => i.sid === sid && i.pid === pid && i.color === color && i.talla === talla);
+    if (line) line.qty += qty;
+    else state.cart.push({ sid, pid, color, talla, qty });
+    saveCart();
+  }
+
+  function openProduct(sid, pid) {
+    const s = BY_ID[sid], p = productOf(sid, pid);
+    if (!s || !p) return;
+    const u = unitOf(p);
+    const sel = { color: p.colores[0] ? p.colores[0].n : '', talla: p.tallas.length === 1 ? p.tallas[0] : null, qty: 1 };
+    const quick = p.precioMayor != null ? [p.minMayor, p.minMayor * 2, p.minMayor * 4] : [];
+    const onStore = detailId === sid && $('#detail').classList.contains('is-open');
+    vibrate(8);
+    openModal({
+      cls: 'modal-sheet product-sheet',
+      html: `<div class="modal-grip"></div>
+        <button class="icon-btn ps-close" data-close aria-label="Cerrar">${ico('x')}</button>
+        <div class="ps-img" style="--c:${(CAT[p.cat] || CAT[s.categorias[0]]).color}">
+          <div class="ps-art"></div>
+          ${p.etiqueta ? `<span class="pc-badge ${BADGE_CLASS[p.etiqueta] || ''}">${p.etiqueta}</span>` : ''}
+        </div>
+        <div class="ps-head">
+          <button class="ps-store" data-ps="store">${CAT[s.categorias[0]].emoji} ${esc(s.nombre)} · ${esc(s.direccion.interior.split(',').slice(-1)[0].trim())} ${onStore ? '' : ico('chev')}</button>
+          <h2>${esc(p.nombre)}</h2>
+          <div class="ps-meta">🔥 ${p.vendidos}+ vendidos · ${starsHTML(ratingOf(s).avg, 'sm')} ${fmtRating(ratingOf(s).avg)} tienda</div>
+        </div>
+        <div class="ps-price">
+          <div class="ps-now"><b>${money(p.precio)}</b>${p.precioAntes ? `<s>${money(p.precioAntes)}</s><span class="pc-badge b-sale">-${Math.round((1 - p.precio / p.precioAntes) * 100)}%</span>` : ''}<small>por ${u[1]}</small></div>
+          ${p.precioMayor != null ? `<div class="tiers">
+            <div class="tier" data-tier="menor"><span>1 – ${p.minMayor - 1} ${u[0]}</span><b>${money(p.precio)}</b><em>por menor</em></div>
+            <div class="tier" data-tier="mayor"><span>${p.minMayor}+ ${u[0]}</span><b>${money(p.precioMayor)}</b><em>-${Math.round((1 - p.precioMayor / p.precio) * 100)}% por mayor</em></div>
+          </div>` : '<p class="fine">Esta tienda vende solo por menor.</p>'}
+        </div>
+        ${p.colores.length ? `<div class="ps-field"><h3>Color: <span data-ps="color-name">${esc(sel.color)}</span></h3>
+          <div class="swatches">${p.colores.map((k, i) => `<button class="swatch ${i === 0 ? 'is-on' : ''}" data-color="${esc(k.n)}" style="--sw:${k.hex}" aria-label="${esc(k.n)}" aria-pressed="${i === 0}"></button>`).join('')}</div></div>` : ''}
+        ${p.tallas.length ? `<div class="ps-field"><h3>Talla: <span data-ps="talla-name">${sel.talla ? esc(sel.talla) : 'elige una'}</span></h3>
+          <div class="sizes">${p.tallas.map((t) => `<button class="size ${sel.talla === t ? 'is-on' : ''}" data-talla="${esc(t)}" aria-pressed="${sel.talla === t}">${esc(t)}</button>`).join('')}</div></div>` : ''}
+        <div class="ps-field"><h3>Cantidad <span class="muted" data-ps="incart"></span></h3>
+          <div class="qty-row">
+            <div class="stepper"><button data-q="-1" aria-label="Quitar uno">${ico('minus')}</button><input data-ps="qty" inputmode="numeric" value="1" aria-label="Cantidad"><button data-q="1" aria-label="Agregar uno">${ico('plus')}</button></div>
+            ${quick.map((q) => `<button class="pop-chip" data-qset="${q}">${q} ${u[0]}</button>`).join('')}
+          </div>
+          <div class="mayor-hint" data-ps="hint"></div>
+        </div>
+        <ul class="ps-specs">
+          <li><span>Material</span><b>${esc(p.material)}</b></li>
+          ${p.tallas.length > 1 ? `<li><span>Tallas</span><b>${esc(p.tallas[0])} a ${esc(p.tallas[p.tallas.length - 1])}</b></li>` : ''}
+          <li><span>Stock en tienda</span><b>${p.stock} ${u[0]}</b></li>
+          <li><span>Pago al recoger</span><b>${esc(s.pagos.join(', '))}</b></li>
+          <li><span>Origen</span><b>Hecho en Gamarra, Lima</b></li>
+        </ul>
+        <div class="ps-cta"><button class="btn btn-go btn-lg" data-ps="add">${ico('bag')} Agregar al pedido</button></div>`,
+      onMount(m) {
+        const qtyInput = $('[data-ps="qty"]', m);
+        const sync = () => {
+          sel.qty = Math.max(1, Math.min(p.stock, parseInt(qtyInput.value, 10) || 1));
+          qtyInput.value = sel.qty;
+          $('.ps-art', m).innerHTML = garmentSVG(p.tipo, colorHex(p, sel.color), 'is-big');
+          const already = cartQty(sid, pid);
+          const total = already + sel.qty;
+          const unit = unitPrice(p, total);
+          $$('[data-tier]', m).forEach((t) => t.classList.toggle('is-on', (t.dataset.tier === 'mayor') === (unit !== p.precio)));
+          $('[data-ps="incart"]', m).textContent = already ? `· ya tienes ${already} en tu pedido` : '';
+          const hint = $('[data-ps="hint"]', m);
+          if (p.precioMayor == null) hint.innerHTML = '';
+          else if (total < p.minMayor) hint.innerHTML = `${ico('tag')}<span>Agrega <b>${p.minMayor - total} más</b> y paga <b>${money(p.precioMayor)}</b> c/u (precio por mayor)</span>`;
+          else hint.innerHTML = `${ico('check')}<span><b>Precio por mayor aplicado.</b> Ahorras ${money((p.precio - p.precioMayor) * sel.qty)}</span>`;
+          hint.classList.toggle('is-ok', p.precioMayor != null && total >= p.minMayor);
+          const btn = $('[data-ps="add"]', m);
+          const needSize = p.tallas.length > 1 && !sel.talla;
+          btn.disabled = needSize;
+          btn.innerHTML = needSize ? 'Elige una talla' : `${ico('bag')} Agregar al pedido · ${money(unit * sel.qty)}`;
+        };
+        m.addEventListener('click', (e) => {
+          const sw = e.target.closest('[data-color]');
+          if (sw) {
+            sel.color = sw.dataset.color;
+            $$('.swatch', m).forEach((b) => { const on = b === sw; b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', on); });
+            $('[data-ps="color-name"]', m).textContent = sel.color;
+            vibrate(6); sync(); return;
+          }
+          const sz = e.target.closest('[data-talla]');
+          if (sz) {
+            sel.talla = sz.dataset.talla;
+            $$('.size', m).forEach((b) => { const on = b === sz; b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', on); });
+            $('[data-ps="talla-name"]', m).textContent = sel.talla;
+            vibrate(6); sync(); return;
+          }
+          const step = e.target.closest('[data-q]');
+          if (step) { qtyInput.value = sel.qty + Number(step.dataset.q); sync(); return; }
+          const qs = e.target.closest('[data-qset]');
+          if (qs) { qtyInput.value = qs.dataset.qset; sync(); return; }
+          const act = e.target.closest('[data-ps]');
+          if (!act) return;
+          if (act.dataset.ps === 'store' && !onStore) { closeModal(); location.hash = '#/tienda/' + sid; }
+          if (act.dataset.ps === 'add' && !act.disabled) {
+            addToCart(sid, pid, sel.color, sel.talla, sel.qty);
+            closeModal();
+            vibrate(15);
+            toast(`Agregado a tu pedido 🛍️ ${esc(p.nombre)} × ${sel.qty}`, { action: 'Ver pedido', onAction: () => { location.hash = '#/pedido'; } });
+            refreshDetailCommerce();
+            if (state.baseTab === 'buscar') renderResults();
+            if (state.baseTab === 'pedido') renderCart();
+          }
+        });
+        qtyInput.addEventListener('change', sync);
+        qtyInput.addEventListener('focus', () => qtyInput.select());
+        sync();
+      },
+    });
+  }
+
+  function cartLineHTML(l) {
+    const u = unitOf(l.p);
+    return `<div class="cart-item">
+      <button class="ci-img" data-open="${l.sid}|${l.pid}" style="--c:${CAT[l.p.cat].color}" aria-label="Ver ${esc(l.p.nombre)}">${garmentSVG(l.p.tipo, colorHex(l.p, l.color))}</button>
+      <div class="ci-main">
+        <button class="ci-name" data-open="${l.sid}|${l.pid}">${esc(l.p.nombre)}</button>
+        <span class="ci-variant">${[l.color, l.talla && l.talla !== 'Única' ? 'Talla ' + l.talla : ''].filter(Boolean).map(esc).join(' · ')}</span>
+        <span class="ci-price">${money(l.unit)} c/${u[1]}${l.mayor ? ' <em>por mayor</em>' : ''}</span>
+      </div>
+      <div class="ci-side">
+        <b>${money(l.unit * l.qty)}</b>
+        <div class="stepper sm"><button data-line="${l.index}" data-d="-1" aria-label="${l.qty === 1 ? 'Quitar del pedido' : 'Quitar uno'}">${ico(l.qty === 1 ? 'trash' : 'minus')}</button><span>${l.qty}</span><button data-line="${l.index}" data-d="1" aria-label="Agregar uno">${ico('plus')}</button></div>
+      </div>
+    </div>`;
+  }
+
+  function pickupText(s) {
+    const oi = openInfo(s);
+    return oi.open ? `Recoge hoy hasta las ${oi.text.split('cierra ')[1]}` : `Recoge cuando abra: ${oi.text.replace('Cerrado · ', '')}`;
+  }
+
+  function orderText(o) {
+    const s = BY_ID[o.sid];
+    return `Pedido ${o.code} · UbiGamarra\n${s.nombre}\n${o.lines.map((l) => `• ${l.qty} × ${l.nombre}${l.variante ? ` (${l.variante})` : ''} = ${money(l.unit * l.qty)}`).join('\n')}\nTotal: ${money(o.total)} · ${o.estado === 'pagado' ? `pagado con Yape (operación ${o.pago.operacion})` : 'pago al recoger'}\nRecoger en: ${fullAddress(s)}\n${gmapsSearch(s)}`;
+  }
+
+  function renderCart() {
+    const box = $('#cart-view');
+    if (!box) return;
+    updateCartBadges();
+    const groups = cartGroups();
+    let html = '';
+    if (!groups.length && state.orders.length) {
+      html = `<a class="cart-empty-mini" href="#/buscar">${ico('bag')}<span><b>Tu carrito está vacío</b>Agrega más productos desde el catálogo</span>${ico('chev')}</a>`;
+    } else if (!groups.length) {
+      html = `<div class="empty"><div class="empty-emoji">🛍️</div><b>Tu pedido está vacío</b><span>Agrega productos desde el catálogo de cada tienda. Los separas aquí y pagas al recoger.</span><a class="btn btn-go" href="#/buscar">${ico('search')} Buscar productos</a></div>`;
+    } else {
+      const total = groups.reduce((a, g) => a + g.subtotal, 0);
+      const savings = groups.reduce((a, g) => a + g.savings, 0);
+      const units = groups.reduce((a, g) => a + g.units, 0);
+      html += `<p class="muted pad-x">Por cada tienda: sepáralo y paga al recoger, o cómpralo ya con Yape.</p>`;
+      html += groups.map((g) => {
+        const s = g.s, c = CAT[s.categorias[0]], oi = openInfo(s);
+        return `<section class="cart-store">
+          <div class="cs-head">
+            <span class="mc-icon" style="--c:${c.color}">${c.emoji}</span>
+            <div class="cs-info"><a href="#/tienda/${s.id}"><b>${esc(s.nombre)}</b></a><span>${esc(s.direccion.calle)} ${esc(s.direccion.numero)} · ${esc(s.direccion.interior)}</span></div>
+            <span class="tag ${oi.open ? 'tag-ok' : 'tag-off'}">${oi.short}</span>
+            <button class="icon-btn cs-route" data-cart-route="${s.id}" aria-label="Cómo llegar a ${esc(s.nombre)}">${ico('nav')}</button>
+          </div>
+          <div class="cs-lines">${g.lines.map(cartLineHTML).join('')}</div>
+          ${g.nudges.map((n) => `<div class="mayor-hint">${ico('tag')}<span>Agrega <b>${n.need} más</b> de ${esc(n.p.nombre)} y paga <b>${money(n.p.precioMayor)}</b> c/u</span></div>`).join('')}
+          <div class="cs-total"><span>Subtotal · ${g.units} ${g.units === 1 ? 'producto' : 'productos'}</span><b>${money(g.subtotal)}</b></div>
+          ${g.savings ? `<div class="cs-save">${ico('check')} Ahorras ${money(g.savings)} por comprar al por mayor</div>` : ''}
+          <div class="cs-actions">
+            <button class="btn btn-ghost" data-reserve="${s.id}">Separar pedido</button>
+            <button class="btn btn-yape" data-yape="${s.id}">Comprar con Yape</button>
+          </div>
+        </section>`;
+      }).join('');
+      html += `<div class="cart-summary">
+          <div><span>${units} ${units === 1 ? 'producto' : 'productos'} · ${groups.length} ${groups.length === 1 ? 'tienda' : 'tiendas'}</span><b>${money(total)}</b></div>
+          ${savings ? `<em>Ahorras ${money(savings)} con precios por mayor</em>` : ''}
+        </div>`;
+    }
+    const active = state.orders.filter((o) => !o.recogidoEn).reverse();
+    const history = state.orders.filter((o) => o.recogidoEn).reverse();
+    if (active.length) {
+      html += `<div class="sec-head-row"><h2 class="sec-title">Mis pedidos</h2><span class="muted">${active.length} por recoger</span></div>
+        <div class="card-list">${active.map(orderCardHTML).join('')}</div>`;
+    }
+    if (history.length) {
+      html += `<details class="oc-history"><summary>Historial · ${history.length} ${history.length === 1 ? 'pedido recogido' : 'pedidos recogidos'}</summary>
+        <div class="card-list">${history.map(orderCardHTML).join('')}</div></details>`;
+    }
+    box.innerHTML = html;
+  }
+
+  function orderCardHTML(o) {
+    const s = BY_ID[o.sid];
+    if (!s) return '';
+    const c = CAT[s.categorias[0]];
+    const paid = !!o.pago;
+    const done = !!o.recogidoEn;
+    const units = o.lines.reduce((a, l) => a + l.qty, 0);
+    const step = (label, state) => `<li class="${state}"><i>${state === 'is-done' ? ico('check') : ''}</i><span>${label}</span></li>`;
+    return `<article class="order-card ${done ? 'is-done' : ''}">
+      <header class="oc-head">
+        <span class="mc-icon" style="--c:${c.color}">${c.emoji}</span>
+        <div class="oc-store"><a href="#/tienda/${s.id}"><b>${esc(s.nombre)}</b></a><span>${esc(s.direccion.calle)} ${esc(s.direccion.numero)} · ${esc(s.direccion.interior)}</span></div>
+        <span class="tag ${done ? '' : paid ? 'tag-ok' : 'tag-warn'}">${done ? 'Recogido' : paid ? 'Pagado' : 'Por pagar'}</span>
+      </header>
+      <div class="oc-main">
+        <div class="oc-code-box"><span>Código de recojo</span><b>${o.code}</b><small>${done ? `Recogido el ${limaDateTime(new Date(o.recogidoEn).toISOString())}` : 'Muéstralo en el stand'}</small></div>
+        <div class="oc-total"><span>Total</span><b>${money(o.total)}</b><small>${paid ? 'Pagado con Yape' : 'Pagas al recoger'}</small></div>
+      </div>
+      ${done ? '' : `<ol class="oc-steps" aria-label="Estado del pedido">
+        ${step(paid ? 'Pagado' : 'Separado', 'is-done')}${step('Listo para recoger', 'is-current')}${step('Recogido', '')}
+      </ol>`}
+      <ul class="oc-info">
+        ${done ? '' : `<li>${ico('clock')}<span>${esc(pickupText(s))}</span></li>`}
+        ${paid
+          ? `<li>${ico('mail')}<span>Operación Yape <b>${esc(o.pago.operacion)}</b> · constancia enviada a ${esc(o.pago.correo)}</span></li>`
+          : `<li>${ico('tag')}<span>Paga en el stand con ${esc(s.pagos.join(', '))}</span></li>`}
+      </ul>
+      <details class="oc-items">
+        <summary>${units} ${units === 1 ? 'producto' : 'productos'} · ver detalle</summary>
+        <ul>${o.lines.map((l) => `<li><span>${l.qty} × ${esc(l.nombre)}${l.variante ? `<small>${esc(l.variante)}</small>` : ''}</span><b>${money(l.unit * l.qty)}</b></li>`).join('')}</ul>
+      </details>
+      <div class="oc-actions ${done ? 'is-two' : ''}">
+        ${done
+          ? `<button data-order-share="${o.code}"><span class="qa-ico">${ico('share')}</span><span>Compartir</span></button>
+             <button data-order-remove="${o.code}"><span class="qa-ico">${ico('trash')}</span><span>Quitar</span></button>`
+          : `<button data-cart-route="${s.id}"><span class="qa-ico go">${ico('nav')}</span><span>Cómo llegar</span></button>
+             <button data-order-share="${o.code}"><span class="qa-ico">${ico('share')}</span><span>Compartir</span></button>
+             <button data-order-done="${o.code}"><span class="qa-ico ok">${ico('check')}</span><span>Ya lo recogí</span></button>`}
+      </div>
+    </article>`;
+  }
+
+  function onCartClick(e) {
+    const step = e.target.closest('[data-line]');
+    if (step) {
+      const i = Number(step.dataset.line);
+      const line = state.cart[i];
+      if (!line) return;
+      line.qty += Number(step.dataset.d);
+      if (line.qty <= 0) { state.cart.splice(i, 1); toast('Producto quitado del pedido'); }
+      vibrate(6);
+      saveCart();
+      renderCart();
+      return;
+    }
+    const open = e.target.closest('[data-open]');
+    if (open) { const [sid, pid] = open.dataset.open.split('|'); openProduct(sid, pid); return; }
+    const route = e.target.closest('[data-cart-route]');
+    if (route) { startRoute(route.dataset.cartRoute); return; }
+    const reserve = e.target.closest('[data-reserve]');
+    if (reserve) { openReserve(reserve.dataset.reserve); return; }
+    const yape = e.target.closest('[data-yape]');
+    if (yape) { openYapePay(yape.dataset.yape); return; }
+    const share = e.target.closest('[data-order-share]');
+    if (share) { shareOrder(state.orders.find((o) => o.code === share.dataset.orderShare)); return; }
+    const done = e.target.closest('[data-order-done]');
+    if (done) {
+      const o = state.orders.find((x) => x.code === done.dataset.orderDone);
+      if (!o) return;
+      o.recogidoEn = Date.now();
+      storage.set('orders', state.orders);
+      vibrate(15);
+      renderCart();
+      toast(`Pedido ${o.code} recogido. ¡Gracias por comprar en Gamarra! 🎉`, {
+        ms: 5000, action: 'Deshacer',
+        onAction: () => { delete o.recogidoEn; storage.set('orders', state.orders); renderCart(); },
+      });
+      return;
+    }
+    const remove = e.target.closest('[data-order-remove]');
+    if (remove) {
+      state.orders = state.orders.filter((x) => x.code !== remove.dataset.orderRemove);
+      storage.set('orders', state.orders);
+      renderCart();
+      toast('Pedido quitado del historial');
+    }
+  }
+
+  async function shareOrder(o) {
+    if (!o) return;
+    const text = orderText(o);
+    if (navigator.share) {
+      try { await navigator.share({ title: `Pedido ${o.code}`, text }); } catch (err) { /* cancelado */ }
+      return;
+    }
+    copyText(text, 'Pedido copiado para compartir 📋');
+  }
+
+  function openReserve(sid) {
+    const g = cartGroups().find((x) => x.s.id === sid);
+    if (!g) return;
+    const s = g.s;
+    openModal({
+      cls: 'modal-sheet',
+      html: `<div class="modal-grip"></div>
+        <div class="modal-head"><h2>Separar pedido en ${esc(s.nombre)}</h2><button class="icon-btn" data-close aria-label="Cerrar">${ico('x')}</button></div>
+        <ul class="reserve-lines">${g.lines.map((l) => `<li><span>${l.qty} × ${esc(l.p.nombre)}<small>${[l.color, l.talla && l.talla !== 'Única' ? 'Talla ' + l.talla : ''].filter(Boolean).map(esc).join(' · ')}</small></span><b>${money(l.unit * l.qty)}</b></li>`).join('')}</ul>
+        <div class="cs-total"><span>Total a pagar en tienda</span><b>${money(g.subtotal)}</b></div>
+        ${g.savings ? `<div class="cs-save">${ico('check')} Ahorras ${money(g.savings)} por mayor</div>` : ''}
+        <ul class="ps-specs">
+          <li><span>Recojo</span><b>${esc(s.direccion.calle)} ${esc(s.direccion.numero)}, ${esc(s.direccion.interior)}</b></li>
+          <li><span>Horario</span><b>${esc(pickupText(s))}</b></li>
+          <li><span>Pago al recoger</span><b>${esc(s.pagos.join(', '))}</b></li>
+        </ul>
+        <label class="field"><span>¿A nombre de quién? (opcional)</span><input id="reserve-name" maxlength="30" placeholder="Ej.: Carla M. · Boutique Kiara"></label>
+        <button class="btn btn-go btn-lg" id="reserve-ok">Confirmar separación</button>
+        <p class="fine center">Prototipo: el pedido se guarda en tu dispositivo y no se envía a la tienda.</p>`,
+      onMount(m) {
+        $('#reserve-ok', m).addEventListener('click', () => {
+          const order = createOrder(g, { nombre: $('#reserve-name', m).value.trim() });
+          closeModal();
+          setTimeout(() => openOrderDone(order), 280);
+        });
+      },
+    });
+  }
+
+  function openOrderDone(o) {
+    const s = BY_ID[o.sid];
+    openModal({
+      cls: 'modal-sheet',
+      html: `<div class="modal-grip"></div>
+        <div class="order-done">
+          <div class="arrived-emoji">✅</div>
+          <h2>¡Pedido separado!</h2>
+          <p class="muted">Muestra este código en el stand para recogerlo${o.nombre ? ` a nombre de <b>${esc(o.nombre)}</b>` : ''}.</p>
+          <div class="order-code">${o.code}</div>
+          <p><b>${esc(s.nombre)}</b><br>${esc(s.direccion.calle)} ${esc(s.direccion.numero)}, ${esc(s.direccion.interior)}</p>
+          <p class="muted">${esc(pickupText(s))} · Total ${money(o.total)}</p>
+          <div class="points-pill">+10 puntos 🏅</div>
+          <div class="place-actions">
+            <button class="btn btn-ghost" data-od="share">${ico('share')} Compartir</button>
+            <button class="btn btn-go" data-od="route">${ico('nav')} Cómo llegar</button>
+          </div>
+        </div>`,
+      onMount(m) {
+        m.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-od]');
+          if (!b) return;
+          if (b.dataset.od === 'share') shareOrder(o);
+          else { closeModal(); startRoute(o.sid); }
+        });
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------- pago con Yape (ProntoPaga · Yape One Shot)
+  const moneyExact = (v) => 'S/ ' + v.toFixed(2).replace('.', ',');
+  const maskPhone = (t) => `+51 ${t.slice(0, 1)}•• ••• ${t.slice(-3)}`;
+  const fmtPhone = (d) => d.replace(/\D/g, '').slice(0, 9).replace(/^(\d{3})(\d{1,3})?(\d{1,3})?$/, (m, a, b, c) => [a, b, c].filter(Boolean).join(' '));
+  const YAPE_BADGE = '<span class="yape-badge" aria-hidden="true">Yape</span>';
+  const newOrderCode = () => 'UG-' + String(Math.floor(1000 + Math.random() * 9000)) + 'ABCDEFGHJKLMNPRSTUVWXYZ'[Math.floor(Math.random() * 23)];
+  const variantOf = (l) => [l.color, l.talla && l.talla !== 'Única' ? 'Talla ' + l.talla : ''].filter(Boolean).join(' · ');
+  const limaDateTime = (iso) => new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+  const PAY_FAIL = {
+    rechazado: 'Rechazaste la solicitud en tu app Yape.',
+    vencido: 'La solicitud venció sin aprobarse en Yape.',
+    cancelado: 'Cancelaste el pago.',
+  };
+
+  // Convierte el grupo del carrito de una tienda en un pedido (separado o pagado)
+  function createOrder(g, extra) {
+    const order = {
+      code: extra.code || newOrderCode(), sid: g.s.id, creado: Date.now(), total: g.subtotal, ahorro: g.savings, estado: 'separado',
+      lines: g.lines.map((l) => ({ nombre: l.p.nombre, variante: variantOf(l), qty: l.qty, unit: l.unit })),
+      ...extra,
+    };
+    state.orders.push(order);
+    storage.set('orders', state.orders);
+    state.cart = state.cart.filter((i) => i.sid !== g.s.id);
+    saveCart();
+    addPoints(10);
+    renderCart();
+    refreshDetailCommerce();
+    return order;
+  }
+
+  let payPoll = null;
+  function stopPayPoll() {
+    if (!payPoll) return;
+    clearTimeout(payPoll.timer);
+    clearInterval(payPoll.clock);
+    payPoll = null;
+  }
+
+  function openYapePay(sid) {
+    const g = cartGroups().find((x) => x.s.id === sid);
+    if (!g) return;
+    const s = g.s;
+    const P = window.UbiPayments;
+    const isDemo = P.modo === 'demo';
+    const code = newOrderCode();
+    let payment = null;
+    let pending = false;
+    let contact = storage.get('yapeContacto', {});
+
+    openModal({
+      cls: 'modal-sheet yape-sheet',
+      html: '<div class="modal-grip"></div><div class="yape-flow" aria-live="polite"></div>',
+      onClose() {
+        if (payment && pending) {
+          P.cancelPayment(payment.id).catch(() => {});
+          toast('Pago cancelado. Tu pedido sigue en el carrito.');
+        }
+        stopPayPoll();
+      },
+      onMount(m) {
+        const box = $('.yape-flow', m);
+        const head = (title) => `<div class="modal-head"><h2>${YAPE_BADGE} ${title}</h2><button class="icon-btn" data-close aria-label="Cerrar">${ico('x')}</button></div>`;
+        const amount = `<div class="pay-amount"><span>Total a pagar</span><b>${moneyExact(g.subtotal)}</b><small>${esc(s.nombre)} · ${g.units} ${g.units === 1 ? 'producto' : 'productos'}${g.savings ? ` · ahorras ${money(g.savings)} por mayor` : ''}</small></div>`;
+
+        function showForm(error) {
+          pending = false;
+          box.innerHTML = `${head('Comprar con Yape')}${amount}
+            <form class="yape-form" novalidate>
+              <label class="field"><span>Celular registrado en Yape</span>
+                <span class="phone-input"><span class="pi-prefix">🇵🇪 +51</span><input name="tel" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="11" placeholder="987 654 321" value="${esc(fmtPhone(contact.telefono || ''))}" required></span>
+              </label>
+              <label class="field"><span>Correo para tu constancia</span><input name="correo" type="email" inputmode="email" autocomplete="email" placeholder="tucorreo@gmail.com" value="${esc(contact.correo || '')}" required></label>
+              <div class="pay-note">${ico('phone')}<span>Te llegará una <b>notificación de Yape</b> con el monto listo. Solo ábrela y aprueba el pago: no necesitas código de aprobación.</span></div>
+              ${error ? `<div class="form-error" role="alert">${esc(error)}</div>` : ''}
+              <button class="btn btn-yape btn-lg" type="submit">Enviar a mi Yape · ${moneyExact(g.subtotal)}</button>
+              <p class="fine center">Pago procesado por ProntoPaga con Yape One Shot.${isDemo ? ' <b>Demo: no se realiza ningún cobro.</b>' : ''}</p>
+            </form>`;
+          const form = $('.yape-form', box);
+          const tel = form.elements.tel;
+          tel.addEventListener('input', () => { tel.value = fmtPhone(tel.value); });
+          form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const telefono = tel.value.replace(/\D/g, '');
+            const correo = form.elements.correo.value.trim();
+            if (!/^9\d{8}$/.test(telefono)) { contact = { telefono, correo }; showForm('Escribe un celular de 9 dígitos que empiece con 9.'); return; }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(correo)) { contact = { telefono, correo }; showForm('Revisa tu correo: ahí te enviaremos la constancia.'); return; }
+            contact = { telefono, correo };
+            storage.set('yapeContacto', contact);
+            send();
+          });
+        }
+
+        async function send() {
+          const btn = $('button[type="submit"]', box);
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner sm"></span> Enviando a tu Yape…';
+          try {
+            payment = await P.createYapePayment({
+              monto: g.subtotal, moneda: 'PEN', telefono: contact.telefono, correo: contact.correo,
+              pedido: code, descripcion: `UbiGamarra · ${s.nombre}`,
+            });
+            pending = true;
+            vibrate(15);
+            showWaiting();
+          } catch (err) {
+            showForm(err.message || 'No pudimos enviar la solicitud a Yape. Inténtalo de nuevo.');
+          }
+        }
+
+        function showWaiting() {
+          box.innerHTML = `${head('Aprueba en Yape')}
+            <div class="pay-wait">
+              <div class="pw-phone" aria-hidden="true">
+                <div class="pw-notif">${YAPE_BADGE}<span><b>Solicitud de pago</b><small>UbiGamarra · ${moneyExact(g.subtotal)}</small></span><em>Aprobar</em></div>
+              </div>
+              <h3>Revisa tu app Yape</h3>
+              <p class="muted">Enviamos una solicitud de <b>${moneyExact(g.subtotal)}</b> al <b>${maskPhone(contact.telefono)}</b>. Ábrela y aprueba el pago.</p>
+            </div>
+            <ol class="pay-steps">
+              <li class="is-done">${ico('check')}<span>Solicitud enviada a Yape</span></li>
+              <li class="is-current"><span class="spinner sm"></span><span>Esperando tu aprobación</span></li>
+              <li>${ico('check')}<span>Confirmamos el pago automáticamente</span></li>
+            </ol>
+            <div class="pay-timer">La solicitud vence en <b data-timer>--:--</b><span data-net hidden> · reintentando conexión…</span></div>
+            ${isDemo ? `<div class="demo-box"><b>Modo demo</b><span>En la app real apruebas en Yape y el pago se detecta solo. Aquí se aprobará en <b data-auto>${P.config.demoAprobarEnSeg}</b> s.</span>
+              <div class="place-actions"><button class="btn btn-ghost btn-sm" data-sim="rechazar">Simular rechazo</button><button class="btn btn-yape btn-sm" data-sim="aprobar">Simular aprobación</button></div></div>` : ''}
+            <div class="place-actions"><button class="btn btn-ghost" data-pay="change">Cambiar número</button><button class="btn btn-ghost" data-pay="cancel">Cancelar</button></div>`;
+          startPolling();
+        }
+
+        function startPolling() {
+          stopPayPoll();
+          const started = Date.now();
+          const until = new Date(payment.venceEn).getTime();
+          const tick = () => {
+            const left = Math.max(0, Math.round((until - Date.now()) / 1000));
+            const t = $('[data-timer]', box);
+            if (t) t.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+            const auto = $('[data-auto]', box);
+            if (auto) auto.textContent = Math.max(0, P.config.demoAprobarEnSeg - Math.floor((Date.now() - started) / 1000));
+          };
+          const check = async () => {
+            if (!payPoll) return;
+            clearTimeout(payPoll.timer);
+            try {
+              const r = await P.getPayment(payment.id);
+              if (!payPoll) return;
+              const net = $('[data-net]', box);
+              if (net) net.hidden = true;
+              if (r.estado === 'pagado') { pending = false; stopPayPoll(); paid(r); return; }
+              if (PAY_FAIL[r.estado]) { pending = false; stopPayPoll(); showFailed(r.motivo || PAY_FAIL[r.estado]); return; }
+            } catch (err) {
+              const net = $('[data-net]', box);
+              if (net) net.hidden = false;
+            }
+            if (payPoll) payPoll.timer = setTimeout(check, 2000);
+          };
+          payPoll = { timer: setTimeout(check, 1500), clock: setInterval(tick, 1000), now: check };
+          tick();
+        }
+
+        function paid(r) {
+          const order = createOrder(g, {
+            code, estado: 'pagado',
+            pago: { metodo: 'Yape', proveedor: 'ProntoPaga', operacion: r.operacion || '—', pagadoEn: r.pagadoEn || new Date().toISOString(), telefono: maskPhone(contact.telefono), correo: contact.correo },
+          });
+          vibrate([30, 60, 30]);
+          box.innerHTML = `
+            <div class="pay-success">
+              <div class="ps-check">${ico('check')}</div>
+              <h2>¡Pago realizado!</h2>
+              <div class="pay-total">${moneyExact(order.total)}</div>
+              <p class="muted">Pagaste con Yape a <b>${esc(s.nombre)}</b></p>
+            </div>
+            <div class="pay-mail">${ico('mail')}<span>La constancia de pago llegará a tu correo <b>${esc(contact.correo)}</b>.</span></div>
+            <ul class="ps-specs receipt">
+              <li><span>N.° de operación</span><b>${esc(order.pago.operacion)}</b></li>
+              <li><span>Fecha y hora</span><b>${limaDateTime(order.pago.pagadoEn)}</b></li>
+              <li><span>Celular Yape</span><b>${order.pago.telefono}</b></li>
+              <li><span>Productos</span><b>${g.units}</b></li>
+            </ul>
+            <div class="pickup-box"><span>Código de recojo</span><div class="order-code">${order.code}</div><small>Muéstralo en el stand · ${esc(pickupText(s))}</small></div>
+            <div class="points-pill">+10 puntos 🏅</div>
+            <div class="place-actions"><button class="btn btn-ghost" data-close>Listo</button><button class="btn btn-go" data-pay="route">${ico('nav')} Cómo llegar</button></div>`;
+        }
+
+        function showFailed(reason) {
+          box.innerHTML = `${head('Comprar con Yape')}
+            <div class="pay-fail"><div class="pf-icon">${ico('x')}</div><h2>El pago no se completó</h2><p class="muted">${esc(reason)} No se te cobró nada.</p></div>
+            <div class="place-actions"><button class="btn btn-ghost" data-pay="separate">Separar sin pagar</button><button class="btn btn-yape" data-pay="retry">Intentar de nuevo</button></div>`;
+        }
+
+        m.addEventListener('click', (e) => {
+          const sim = e.target.closest('[data-sim]');
+          if (sim && payment) { P.simulate(payment.id, sim.dataset.sim); if (payPoll) payPoll.now(); return; }
+          const b = e.target.closest('[data-pay]');
+          if (!b) return;
+          const act = b.dataset.pay;
+          if (act === 'change' || act === 'cancel') {
+            if (payment && pending) P.cancelPayment(payment.id).catch(() => {});
+            pending = false;
+            stopPayPoll();
+            if (act === 'change') showForm();
+            else showFailed(PAY_FAIL.cancelado);
+          } else if (act === 'retry') showForm();
+          else if (act === 'separate') { closeModal(); setTimeout(() => openReserve(sid), 280); }
+          else if (act === 'route') { closeModal(); startRoute(sid); }
+        });
+
+        showForm();
+      },
+    });
   }
 
   // ---------------------------------------------------------------- guardados
@@ -1113,6 +1840,7 @@
       <div class="detail-bar">
         <button class="round-btn" data-act="back" aria-label="Volver">${ico('back')}</button>
         <div class="detail-bar-title">${esc(s.nombre)}</div>
+        <a class="round-btn bag-btn" href="#/pedido" aria-label="Ver mi pedido">${ico('bag')}<b class="badge cart-badge" hidden></b></a>
         <button class="round-btn" data-act="share" aria-label="Compartir tienda">${ico('share')}</button>
         <button class="round-btn fav-top ${fav ? 'is-on' : ''}" data-act="fav" aria-label="${fav ? 'Quitar de guardados' : 'Guardar tienda'}" aria-pressed="${fav}">${ico('heart')}</button>
       </div>
@@ -1161,11 +1889,7 @@
           </div>
         </section>
 
-        <section class="detail-sec">
-          <h2>Productos y precios</h2>
-          <ul class="product-list">${s.productos.map((p) => `<li><span>${esc(p.nombre)}</span><b>desde S/ ${p.desde}</b></li>`).join('')}</ul>
-          <p class="fine">Precios referenciales por unidad. ${s.venta.mayor ? `Precio por mayor desde ${esc(s.venta.minimoMayor)}.` : 'Solo venta por menor.'}</p>
-        </section>
+        <section class="detail-sec" id="detail-catalog">${catalogHTML(s)}</section>
 
         <section class="detail-sec">
           <h2>Horario</h2>
@@ -1177,9 +1901,7 @@
         <section class="detail-sec" id="detail-reviews">${reviewsHTML(s)}</section>
         <p class="demo-note">Tienda y reseñas de demostración. Calles y numeración: © colaboradores de OpenStreetMap.</p>
       </div>
-      <div class="detail-cta">
-        <a class="btn btn-go btn-lg" href="${gmapsDir(s)}" target="_blank" rel="noopener">${ico('nav')} Cómo llegar con Google Maps</a>
-      </div>`;
+      <div class="detail-cta">${detailCtaHTML(s)}</div>`;
   }
 
   function openDetail(id) {
@@ -1189,11 +1911,15 @@
     if (detailId !== id || !el.innerHTML) {
       detailId = id;
       state.reviewSort = 'recientes';
+      state.catalogFilter = 'todo';
       parkMiniMap();
       el.innerHTML = detailHTML(s);
       $('.detail-scroll', el).scrollTop = 0;
       el.classList.remove('scrolled');
+    } else {
+      refreshDetailCommerce();
     }
+    updateCartBadges();
     el.classList.add('is-open');
     el.setAttribute('aria-hidden', 'false');
     $('#app').classList.add('detail-open');
@@ -1274,6 +2000,8 @@
     }
     const sort = e.target.closest('[data-sort]');
     if (sort) { state.reviewSort = sort.dataset.sort; $('#detail-reviews').innerHTML = reviewsHTML(s); return; }
+    const cf = e.target.closest('[data-cf]');
+    if (cf) { state.catalogFilter = cf.dataset.cf; $('#detail-catalog').innerHTML = catalogHTML(s); vibrate(6); return; }
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
@@ -1346,19 +2074,25 @@
   }
 
   // ---------------------------------------------------------------- modales, menú y avisos
-  function openModal({ html, cls = '', onMount }) {
+  let modalTimer = null;
+  let modalOnClose = null;
+  function openModal({ html, cls = '', onMount, onClose }) {
+    clearTimeout(modalTimer);
+    if (modalOnClose) { const prev = modalOnClose; modalOnClose = null; prev(); }
+    modalOnClose = onClose || null;
     const root = $('#modal-root');
     root.innerHTML = `<div class="modal-backdrop" data-close></div><div class="modal ${cls}" role="dialog" aria-modal="true">${html}</div>`;
     root.classList.add('is-open');
     requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('is-visible')));
-    $$('[data-close]', root).forEach((b) => b.addEventListener('click', closeModal));
+    root.onclick = (e) => { if (e.target.closest('[data-close]')) closeModal(); };
     if (onMount) onMount($('.modal', root));
   }
   function closeModal() {
     const root = $('#modal-root');
     if (!root.classList.contains('is-open')) return;
+    if (modalOnClose) { const cb = modalOnClose; modalOnClose = null; cb(); }
     root.classList.remove('is-visible');
-    setTimeout(() => { root.classList.remove('is-open'); root.innerHTML = ''; }, 260);
+    modalTimer = setTimeout(() => { root.classList.remove('is-open'); root.innerHTML = ''; }, 260);
   }
 
   function toast(msg, { ms = 2600, action, onAction } = {}) {
@@ -1449,7 +2183,11 @@
     if (!firstRoute) state.navigated = true;
     firstRoute = false;
     closeModal();
-    if (view === 'tienda') { openDetail(parts[1]); return; }
+    if (view === 'tienda') {
+      openDetail(parts[1]);
+      if (params.get('p') && productOf(parts[1], params.get('p'))) setTimeout(() => openProduct(parts[1], params.get('p')), 350);
+      return;
+    }
     closeDetail();
     if (view === 'mapa') {
       showTab('mapa');
@@ -1467,6 +2205,9 @@
     } else if (view === 'guardados') {
       showTab('guardados');
       renderSaved();
+    } else if (view === 'pedido') {
+      showTab('pedido');
+      renderCart();
     } else {
       location.replace('#/mapa');
     }
@@ -1508,6 +2249,12 @@
     $('#btn-locate').addEventListener('click', () => afterUserMoved(true));
     $('#btn-report').addEventListener('click', openReportPicker);
     $('#sheet-body').addEventListener('click', onSheetClick);
+    $('#cart-view').addEventListener('click', onCartClick);
+    // Cualquier tarjeta de producto (detalle, búsqueda, ofertas) abre su ficha
+    $('#app').addEventListener('click', (e) => {
+      const pc = e.target.closest('.pcard');
+      if (pc) openProduct(pc.dataset.sid, pc.dataset.pid);
+    });
     ['#search-results', '#saved-list'].forEach((sel) => {
       $(sel).addEventListener('click', onCardListClick);
       $(sel).addEventListener('keydown', onCardKey);
@@ -1550,6 +2297,7 @@
     });
     window.addEventListener('appinstalled', () => toast('¡UbiGamarra quedó instalada! 🎉'));
     window.addEventListener('hashchange', onRoute);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && payPoll) payPoll.now(); });
   }
 
   function init() {
@@ -1565,6 +2313,7 @@
     renderResults();
     renderSaved();
     updateFavBadge();
+    updateCartBadges();
     onRoute();
     // refresca "abierto/cerrado" cada minuto
     setInterval(() => { if (!state.nav) renderSheet(); }, 60000);
