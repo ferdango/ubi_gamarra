@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es-PE">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>UbiGamarra</title>
+  <meta name="description" content="Encuentra tiendas en el Emporio Comercial de Gamarra por tipo de producto, mira reseñas y llega con el mapa.">
+  <meta name="theme-color" content="#33CCFF">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="UbiGamarra">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/icon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+  <link href="css/app.css?v=2" rel="stylesheet">
+</head>
+<body>
+  <div class="desk-caption" aria-hidden="true">
+    <img src="icons/icon.svg" alt="" width="56" height="56">
+    <h1>UbiGamarra</h1>
+    <p>Prototipo de PWA para encontrar tiendas en el Emporio Comercial de Gamarra, Lima.</p>
+    <p class="muted">Ábrela en tu celular e instálala en la pantalla de inicio para usarla como app.</p>
+  </div>
+
+  <div id="app" data-tab="mapa">
+    <!-- PANTALLA 1 · MAPA -->
+    <section class="screen screen-map is-active" id="screen-mapa" aria-label="Mapa">
+      <div id="map" class="map"></div>
+
+      <div class="map-top">
+        <div class="map-top-row">
+          <button class="round-btn avatar-btn" id="btn-menu" aria-label="Abrir menú"></button>
+          <button class="search-pill" id="map-search" aria-label="Buscar tiendas">
+            <span class="ico" data-i="search"></span>
+            <span class="search-pill-text">¿Qué buscas en Gamarra?</span>
+            <span class="search-pill-mic ico" data-i="mic" id="map-mic" role="button" aria-label="Buscar por voz"></span>
+          </button>
+        </div>
+        <div class="chips" id="map-chips" role="tablist" aria-label="Filtrar por tipo de producto"></div>
+        <div class="loc-chip" id="loc-chip"></div>
+      </div>
+
+      <div class="nav-banner" id="nav-banner" hidden></div>
+
+      <div class="fab-col" id="fab-col">
+        <button class="round-btn" id="btn-theme" aria-label="Cambiar a modo noche"><span class="ico" data-i="moon"></span></button>
+        <button class="round-btn" id="btn-3d" aria-label="Vista 3D"><span class="btn-3d-text">3D</span></button>
+        <button class="round-btn" id="btn-locate" aria-label="Centrar en mi ubicación"><span class="ico" data-i="locate"></span></button>
+      </div>
+      <button class="report-fab" id="btn-report" aria-label="Reportar algo en Gamarra"><span class="ico" data-i="megaphone"></span></button>
+      <div class="speedo" id="speedo" hidden><b>4</b><small>km/h</small></div>
+
+      <section class="sheet" id="sheet" aria-live="polite">
+        <div class="sheet-grip" aria-hidden="true"></div>
+        <div class="sheet-body" id="sheet-body"></div>
+      </section>
+    </section>
+
+    <!-- PANTALLA 2 · BÚSQUEDA -->
+    <section class="screen screen-search" id="screen-buscar" aria-label="Buscar tiendas">
+      <header class="search-head">
+        <h1 class="screen-title">Buscar tiendas</h1>
+        <label class="search-box">
+          <span class="ico" data-i="search"></span>
+          <input id="search-input" type="search" inputmode="search" enterkeyhint="search" autocomplete="off"
+                 placeholder="Jeans, polos pima, uniformes…" aria-label="Buscar tiendas o productos">
+          <button class="icon-btn" id="search-clear" aria-label="Borrar búsqueda" hidden><span class="ico" data-i="x"></span></button>
+          <button class="icon-btn mic-btn" id="search-mic" aria-label="Buscar por voz"><span class="ico" data-i="mic"></span></button>
+        </label>
+        <div class="filter-row" id="search-filters"></div>
+      </header>
+      <div class="screen-scroll" id="search-results"></div>
+    </section>
+
+    <!-- GUARDADOS -->
+    <section class="screen screen-saved" id="screen-guardados" aria-label="Tiendas guardadas">
+      <header class="search-head">
+        <h1 class="screen-title">Guardados</h1>
+      </header>
+      <div class="screen-scroll" id="saved-list"></div>
+    </section>
+
+    <!-- PANTALLA 3 · DETALLE DE TIENDA -->
+    <section class="detail" id="detail" aria-label="Detalle de tienda" aria-hidden="true"></section>
+
+    <nav class="tabbar" id="tabbar" aria-label="Navegación principal">
+      <a href="#/mapa" data-tab="mapa"><span class="ico" data-i="map"></span><span>Mapa</span></a>
+      <a href="#/buscar" data-tab="buscar"><span class="ico" data-i="search"></span><span>Buscar</span></a>
+      <a href="#/guardados" data-tab="guardados"><span class="ico" data-i="heart"></span><span>Guardados</span><b class="badge" id="fav-badge" hidden></b></a>
+    </nav>
+
+    <div class="modal-root" id="modal-root"></div>
+    <div class="toast-root" id="toast-root" aria-live="polite"></div>
+  </div>
+
+  <div id="mini-map-holder" hidden><div id="mini-map" class="mini-map"></div></div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="js/catalog.js?v=2"></script>
+  <script src="js/data.js?v=2"></script>
+  <script src="js/mapstyle.js?v=2"></script>
+  <script src="js/app.js?v=2"></script>
+</body>
+</html>
