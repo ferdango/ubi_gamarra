@@ -8,7 +8,7 @@ Web que se comporta como app para encontrar tiendas del **Emporio Comercial de G
 |---|---|
 | **Mapa** (`#/mapa`) | Mapa vectorial con estilo tipo Waze (modo día/noche y vista 3D). Pines por tipo de producto, zona del emporio marcada, Estación Gamarra del Metro, tu ubicación con cono de dirección, reportes de la comunidad (ofertas, mucha gente, obras, serenazgo…), botón naranja para reportar, ruta a pie real y navegación simulada paso a paso. |
 | **Buscar** (`#/buscar`) | Búsqueda por texto o voz de **tiendas o productos** (para comparar precios entre stands), 12 tipos de producto, ofertas del día, filtros (por mayor, por menor, abierto ahora, ★ 4,5+), orden por cercanía / precio / valoración / reseñas y “Ver en mapa”. |
-| **Detalle de tienda** (`#/tienda/<id>`) | Nombre, categorías, dirección exacta (calle, número, galería, piso y stand), mini‑mapa, botón **Abrir en Google Maps** y **Cómo llegar con Google Maps**, **catálogo** tipo tienda online, horario, medios de pago y reseñas (con resumen, orden y formulario para escribir una). |
+| **Detalle de tienda** (`#/tienda/<id>`) | Nombre, categorías, dirección exacta (calle, número, galería, piso y stand), mini‑mapa, botón **Abrir en Google Maps** y **Cómo llegar con Google Maps**, botón **WhatsApp** que abre el chat de la tienda con un mensaje listo (incluye lo que tengas en el carrito de esa tienda), **catálogo** tipo tienda online, horario, medios de pago y reseñas (con resumen, orden y formulario para escribir una). |
 | **Ficha de producto** (`#/tienda/<id>?p=<producto>`) | Ilustración que cambia con el color, precio por menor y por mayor (tabla por cantidad), colores, tallas, cantidad con atajos (media docena, docena), material, stock y botón **Agregar al pedido**. |
 | **Pedido** (`#/pedido`) | Carrito agrupado por tienda. Aplica el precio por mayor solo, avisa cuánto falta para llegar al mayor, muestra el ahorro y permite **separar el pedido** (pagas al recoger) o **comprar con Yape**: escribes tu celular, apruebas la notificación en tu app Yape y la app detecta el pago y muestra **¡Pago realizado!** con el código de recojo; la constancia llega al correo. |
 | **Guardados** (`#/guardados`) | Tiendas marcadas con el corazón. |
@@ -70,12 +70,15 @@ Cada tienda en `js/data.js` tiene esta forma:
   "venta": { "mayor": true, "menor": true, "minimoMayor": "media docena" },
   "horario": [[600, 960], [540, 1140], …],  // domingo a sábado, minutos desde la medianoche; null = cerrado
   "pagos": ["Efectivo", "Yape", "Plin", "Tarjeta"],
+  "whatsapp": "51987654321",              // 51 + 9 dígitos; null = usa UBI_WHATSAPP_DEMO
   "desde": 2012, "verificada": true,
   "resenas": [{ "autor": "María L.", "estrellas": 5, "fecha": "2026-10-20", "texto": "…" }]
 }
 ```
 
 Tip: en Google Maps, mantén presionado el punto exacto de la tienda y copia las coordenadas para `lat` y `lng`.
+
+Las tiendas demo no tienen WhatsApp propio (`"whatsapp": null`). Para probar el botón, pon un número de prueba en `window.UBI_WHATSAPP_DEMO` (`js/catalog.js`): todas las tiendas demo abrirán ese chat. Si está vacío, el botón avisa que la tienda aún no tiene WhatsApp.
 
 ## Datos y servicios
 

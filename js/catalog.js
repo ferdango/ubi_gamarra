@@ -37,6 +37,10 @@ window.UBI_ZONE = [[
   [-77.016814, -12.069753], [-77.017442, -12.064703], [-77.01784, -12.061705],
 ]];
 
+// WhatsApp para las tiendas demo (no tienen número propio). Formato: 51 + 9 dígitos, sin espacios ni +.
+// Vacío = el botón avisa que la tienda aún no tiene WhatsApp. Las tiendas reales usan su campo "whatsapp" en data.js.
+window.UBI_WHATSAPP_DEMO = '51966461384';
+
 window.UBI_STATION = { nombre: 'Estación Gamarra', linea: 'Línea 1 del Metro', lat: -12.06528, lng: -77.012384 };
 
 // Punto de partida simulado: salida de la Estación Gamarra hacia Jr. Hipólito Unánue

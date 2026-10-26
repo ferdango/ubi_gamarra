@@ -144,6 +144,7 @@
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     tag: '<path d="M3.5 12.5V4h8.5l9 9-8.5 8.5-9-9Z"/><circle cx="8" cy="8.5" r="1.4"/>',
     phone: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/>',
+    whatsapp: '<path d="M4 20l1.3-3.9A8.3 8.3 0 1 1 8.1 19Z"/><path d="M9.2 8.4c.4-.6 1-.6 1.3 0l.6 1.4c.1.3 0 .6-.2.8l-.5.5a6 6 0 0 0 2.6 2.6l.5-.5c.2-.2.5-.3.8-.2l1.4.6c.6.3.6.9 0 1.3-.9.6-2 .7-3 .2a8.6 8.6 0 0 1-3.7-3.7c-.5-1-.4-2.1.2-3Z"/>',
     mail: '<rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="m4 7.5 8 6 8-6"/>',
   };
   const ico = (name, cls = '') => `<svg class="svg-ico ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
@@ -1863,7 +1864,7 @@
           <div class="quick-actions">
             <button data-act="route"><span class="qa-ico go">${ico('nav')}</span><span>Ir ahora</span></button>
             <a href="${gmapsDir(s)}" target="_blank" rel="noopener"><span class="qa-ico">${ico('pin')}</span><span>Google Maps</span></a>
-            <button data-act="share"><span class="qa-ico">${ico('share')}</span><span>Compartir</span></button>
+            <button data-act="whatsapp" aria-label="Escribir a ${esc(s.nombre)} por WhatsApp"><span class="qa-ico wa">${ico('whatsapp')}</span><span>WhatsApp</span></button>
             <button data-act="fav" class="${fav ? 'is-on' : ''}"><span class="qa-ico fav">${ico('heart')}</span><span>${fav ? 'Guardada' : 'Guardar'}</span></button>
           </div>
           <p class="detail-desc">${esc(s.descripcion)}</p>
@@ -1988,6 +1989,29 @@
     ta.remove();
   }
 
+  // WhatsApp de la tienda: abre el chat con un mensaje listo (incluye lo que hay en el carrito de esa tienda)
+  const whatsappOf = (s) => String(s.whatsapp || window.UBI_WHATSAPP_DEMO || '').replace(/\D/g, '');
+  function whatsappMessage(s) {
+    const a = s.direccion;
+    let msg = `Hola, ${s.nombre} 👋 Vi su tienda en UbiGamarra (${a.calle} ${a.numero}, ${a.interior}).`;
+    const g = cartGroups().find((x) => x.s.id === s.id);
+    if (g) {
+      msg += `\nMe interesa:\n${g.lines.map((l) => `• ${l.qty} × ${l.p.nombre}${variantOf(l) ? ` (${variantOf(l)})` : ''}`).join('\n')}\n¿Tienen stock?`;
+    } else {
+      msg += ' Quisiera hacer una consulta: ';
+    }
+    return msg;
+  }
+  function openWhatsApp(s) {
+    const number = whatsappOf(s);
+    if (!/^51\d{9}$/.test(number)) {
+      toast('Esta tienda de demo aún no tiene WhatsApp configurado.', { ms: 3500 });
+      return;
+    }
+    vibrate(10);
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(whatsappMessage(s))}`, '_blank', 'noopener');
+  }
+
   function onDetailClick(e) {
     const s = BY_ID[detailId];
     if (!s) return;
@@ -2008,6 +2032,7 @@
     const act = btn.dataset.act;
     if (act === 'back') goBack();
     else if (act === 'share') shareStore(s);
+    else if (act === 'whatsapp') openWhatsApp(s);
     else if (act === 'copy') copyText(fullAddress(s), 'Dirección copiada 📋');
     else if (act === 'fav') { toggleFav(s.id); refreshDetailFav(s); }
     else if (act === 'route') startRoute(s.id);

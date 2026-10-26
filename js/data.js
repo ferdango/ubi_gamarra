@@ -1,6 +1,7 @@
 // Datos de demostración de UbiGamarra.
 // Las tiendas y reseñas son ficticias; las calles y la numeración se basan en OpenStreetMap (© colaboradores de OSM).
 // productos: precio por menor, precioMayor desde minMayor unidades (null si solo vende por menor); tipo define la ilustración.
+// whatsapp: número de la tienda con código de país (51 + 9 dígitos); null en las tiendas demo.
 // horario: un par [abre, cierra] en minutos desde la medianoche por día, de domingo (0) a sábado (6); null = cerrado.
 
 window.UBI_STORES = [
@@ -350,6 +351,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2012,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -727,6 +729,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2008,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -1107,6 +1110,7 @@ window.UBI_STORES = [
    "Transferencia"
   ],
   "desde": 2015,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -1444,6 +1448,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2018,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -1808,6 +1813,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2010,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -2215,6 +2221,7 @@ window.UBI_STORES = [
    "Plin"
   ],
   "desde": 2014,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -2550,6 +2557,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2019,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -2946,6 +2954,7 @@ window.UBI_STORES = [
    "Plin"
   ],
   "desde": 2016,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -3289,6 +3298,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2011,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -3657,6 +3667,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2013,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -4053,6 +4064,7 @@ window.UBI_STORES = [
    "Plin"
   ],
   "desde": 2017,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -4381,6 +4393,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2009,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -4715,6 +4728,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2020,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -5062,6 +5076,7 @@ window.UBI_STORES = [
    "Transferencia"
   ],
   "desde": 2005,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -5428,6 +5443,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2015,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -5764,6 +5780,7 @@ window.UBI_STORES = [
    "Plin"
   ],
   "desde": 2016,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -6141,6 +6158,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2007,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -6512,6 +6530,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2021,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -6835,6 +6854,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 1998,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -7164,6 +7184,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2003,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -7523,6 +7544,7 @@ window.UBI_STORES = [
    "Plin"
   ],
   "desde": 2001,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -7846,6 +7868,7 @@ window.UBI_STORES = [
    "Transferencia"
   ],
   "desde": 2010,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -8289,6 +8312,7 @@ window.UBI_STORES = [
    "Transferencia"
   ],
   "desde": 2004,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -8623,6 +8647,7 @@ window.UBI_STORES = [
    "Plin"
   ],
   "desde": 1999,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -9059,6 +9084,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2012,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -9432,6 +9458,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2014,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -9733,6 +9760,7 @@ window.UBI_STORES = [
    "Plin"
   ],
   "desde": 2017,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -10102,6 +10130,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2006,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -10397,6 +10426,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2011,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {
@@ -10699,6 +10729,7 @@ window.UBI_STORES = [
    "Plin"
   ],
   "desde": 2018,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -10991,6 +11022,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 1993,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -11277,6 +11309,7 @@ window.UBI_STORES = [
    "Tarjeta"
   ],
   "desde": 2016,
+  "whatsapp": null,
   "verificada": true,
   "resenas": [
    {
@@ -11617,6 +11650,7 @@ window.UBI_STORES = [
    "Plin"
   ],
   "desde": 2013,
+  "whatsapp": null,
   "verificada": false,
   "resenas": [
    {

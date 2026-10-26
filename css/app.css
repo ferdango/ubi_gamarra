@@ -510,6 +510,8 @@ a { color: inherit; }
 .quick-actions > *:active .qa-ico { transform: scale(.9); }
 .qa-ico.go { background: var(--go); color: #fff; box-shadow: 0 6px 14px color-mix(in srgb, var(--go) 35%, transparent); }
 .is-on .qa-ico.fav { color: var(--heart); }
+.qa-ico.wa { background: color-mix(in srgb, #25D366 16%, var(--surface)); color: #128C4A; }
+[data-theme="dark"] .qa-ico.wa { color: #3DDC84; }
 .is-on .qa-ico.fav .svg-ico { fill: currentColor; }
 .detail-desc { margin: 14px 0 0; font-size: 14.5px; font-weight: 500; line-height: 1.5; color: var(--ink-2); }
 
